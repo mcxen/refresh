@@ -1,7 +1,13 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
-import { appRouter } from './trpc'
+import { appRouter, scanAllSources } from './trpc'
+import { spawn } from 'child_process'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 const app = new Hono()
 app.use('*', cors())
@@ -13,6 +19,86 @@ app.use('/trpc/*', async (c) => {
     req: c.req.raw,
     router: appRouter,
     createContext: () => ({})
+  })
+})
+
+// SSE endpoint for fetch with real-time logs
+app.get('/api/fetch', async () => {
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder()
+      const send = (event: string, data: string) => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`))
+      }
+
+      send('log', 'Starting fetch...')
+
+      const projectDir = join(__dirname, '..')
+      const timestamp = Math.floor(Date.now() / 1000)
+
+      const tasks = [
+        { name: 'zhihu-follow', cmd: 'bb-browser', args: ['site', 'zhihu/follow', '50', '--jq', '.'] },
+        { name: 'zhihu-recommend', cmd: 'bb-browser', args: ['site', 'zhihu/recommend', '50', '--jq', '.'] },
+        { name: 'twitter-following', cmd: 'bb-browser', args: ['site', 'twitter/following', '50', '--jq', '.'] },
+        { name: 'twitter-recommend', cmd: 'bb-browser', args: ['site', 'twitter/recommend', '50', '--jq', '.'] },
+      ]
+
+      for (const task of tasks) {
+        send('log', `Fetching ${task.name}...`)
+
+        try {
+          const result = await new Promise<string>((resolve, reject) => {
+            const proc = spawn(task.cmd, task.args, { cwd: projectDir })
+            let stdout = ''
+            let stderr = ''
+
+            proc.stdout.on('data', (data) => {
+              stdout += data.toString()
+            })
+
+            proc.stderr.on('data', (data) => {
+              stderr += data.toString()
+              send('log', `[${task.name}] ${data.toString().trim()}`)
+            })
+
+            proc.on('close', (code) => {
+              if (code === 0) {
+                resolve(stdout)
+              } else {
+                reject(new Error(`Exit code ${code}: ${stderr}`))
+              }
+            })
+
+            proc.on('error', reject)
+          })
+
+          // 保存文件
+          const fileName = `${task.name}-${timestamp}.json`
+          const filePath = join(projectDir, 'data', fileName)
+          await Bun.write(filePath, result)
+          send('log', `✓ Saved ${fileName}`)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          send('log', `✗ Failed ${task.name}: ${msg}`)
+          send('error', msg)
+        }
+      }
+
+      // 重新扫描
+      send('log', 'Scanning data files...')
+      await scanAllSources()
+
+      send('done', JSON.stringify({ timestamp, lastScanTime: new Date().toISOString() }))
+      controller.close()
+    }
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    }
   })
 })
 

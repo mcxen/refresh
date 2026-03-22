@@ -121,7 +121,7 @@ async function getAllFilesInfo(): Promise<{ file: string; size: number; mtime: s
   return infos.sort((a, b) => a.file.localeCompare(b.file))
 }
 
-async function scanAllSources() {
+export async function scanAllSources() {
   const sources = ['twitter-following-', 'twitter-recommend-', 'zhihu-follow-', 'zhihu-recommend-']
   await Promise.all(sources.map(async (s) => {
     cache[s] = await loadMergedData(s)
