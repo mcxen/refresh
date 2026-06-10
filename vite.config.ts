@@ -4,6 +4,10 @@ import { TanStackRouterVite } from '@tanstack/router-vite-plugin'
 import path from 'path'
 
 const apiTarget = process.env.REFRESH_API_TARGET ?? 'http://localhost:3001'
+const allowedHosts = process.env.REFRESH_ALLOWED_HOSTS
+  ?.split(',')
+  .map(host => host.trim())
+  .filter(Boolean)
 
 export default defineConfig({
   plugins: [react(), TanStackRouterVite()],
@@ -14,6 +18,7 @@ export default defineConfig({
   },
   server: {
     host: true, // 局域网可访问（与后端保持一致的全开策略）
+    allowedHosts,
     proxy: {
       '/api': {
         target: apiTarget,

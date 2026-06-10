@@ -5,6 +5,9 @@ SESSION="${SESSION:-refresh-k2}"
 SERVER_PORT="${SERVER_PORT:-13001}"
 WEB_PORT="${WEB_PORT:-13002}"
 PUBLIC_URL="${PUBLIC_URL:-https://refresh-k2.woodgear.me}"
+PUBLIC_HOST="${PUBLIC_URL#https://}"
+PUBLIC_HOST="${PUBLIC_HOST#http://}"
+PUBLIC_HOST="${PUBLIC_HOST%%/*}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$ROOT"
@@ -24,6 +27,6 @@ tmux new-session -d -s "$SESSION" -n server -c "$ROOT" \
   "$common; PORT=$SERVER_PORT RADAR_BASE_URL=$PUBLIC_URL bun server/index.ts 2>&1 | tee -a data/logs/refresh-k2-server.log"
 
 tmux new-window -t "$SESSION" -n web -c "$ROOT" \
-  "$common; REFRESH_API_TARGET=http://127.0.0.1:$SERVER_PORT bunx vite --host 127.0.0.1 --port $WEB_PORT 2>&1 | tee -a data/logs/refresh-k2-web.log"
+  "$common; REFRESH_API_TARGET=http://127.0.0.1:$SERVER_PORT REFRESH_ALLOWED_HOSTS=$PUBLIC_HOST bunx vite --host 127.0.0.1 --port $WEB_PORT 2>&1 | tee -a data/logs/refresh-k2-web.log"
 
 tmux list-windows -t "$SESSION"
