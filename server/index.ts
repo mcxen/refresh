@@ -17,6 +17,8 @@ app.use('*', cors())
 
 // 资源 API（docs/design.md）
 await ensureDirs()
+const { initMedia } = await import('./media')
+await initMedia()
 await buildIndex()
 app.route('/api/v1', apiV1)
 

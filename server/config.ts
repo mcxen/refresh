@@ -16,6 +16,8 @@ export interface SourceConfig {
   capability: string
   /** bb-browser adapter 名（BbBrowserFetcher 用） */
   adapter: string
+  /** 抓取通道：cdp = 直连 CDP（结构化全量），bb = bb-browser adapter */
+  fetchVia: 'cdp' | 'bb'
 }
 
 export const ACCOUNTS: AccountConfig[] = [
@@ -24,10 +26,10 @@ export const ACCOUNTS: AccountConfig[] = [
 ]
 
 export const SOURCES: SourceConfig[] = [
-  { name: 'zhihu-main-recommend', account: 'zhihu-main', platform: 'zhihu', capability: 'recommend', adapter: 'zhihu/recommend' },
-  { name: 'zhihu-main-follow', account: 'zhihu-main', platform: 'zhihu', capability: 'follow', adapter: 'zhihu/follow' },
-  { name: 'twitter-main-recommend', account: 'twitter-main', platform: 'twitter', capability: 'recommend', adapter: 'twitter/recommend' },
-  { name: 'twitter-main-following', account: 'twitter-main', platform: 'twitter', capability: 'following', adapter: 'twitter/following' },
+  { name: 'zhihu-main-recommend', account: 'zhihu-main', platform: 'zhihu', capability: 'recommend', adapter: 'zhihu/recommend', fetchVia: 'cdp' },
+  { name: 'zhihu-main-follow', account: 'zhihu-main', platform: 'zhihu', capability: 'follow', adapter: 'zhihu/follow', fetchVia: 'bb' },
+  { name: 'twitter-main-recommend', account: 'twitter-main', platform: 'twitter', capability: 'recommend', adapter: 'twitter/recommend', fetchVia: 'cdp' },
+  { name: 'twitter-main-following', account: 'twitter-main', platform: 'twitter', capability: 'following', adapter: 'twitter/following', fetchVia: 'cdp' },
 ]
 
 export function getSource(name: string): SourceConfig | undefined {

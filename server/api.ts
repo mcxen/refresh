@@ -12,6 +12,8 @@ import {
 } from './resources'
 import { createRefreshWindow, getRunningWindow, runningWindowResources, watchWindow } from './refresh'
 import { patchOverlay, type OverlayEntry } from './store'
+import { mediaFilePath, MIME_BY_EXT } from './media'
+import { readFile } from 'fs/promises'
 
 export const apiV1 = new Hono()
 
@@ -86,6 +88,26 @@ apiV1.get('/accounts', c => c.json(list('Account', accountResources())))
 apiV1.get('/accounts/:name', c => {
   const a = accountResources().find(r => r.metadata.name === c.req.param('name'))
   return a ? c.json(a) : c.json({ error: 'not found' }, 404)
+})
+
+// ---------- media ----------
+
+apiV1.get('/media/:file', async c => {
+  const path = mediaFilePath(c.req.param('file'))
+  if (!path) return c.json({ error: 'invalid media name' }, 400)
+  try {
+    const bytes = await readFile(path)
+    const ext = c.req.param('file').split('.').pop() ?? ''
+    return new Response(new Uint8Array(bytes), {
+      headers: {
+        'Content-Type': MIME_BY_EXT[ext] ?? 'application/octet-stream',
+        // 内容寻址（sha256 命名），可永久缓存
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    })
+  } catch {
+    return c.json({ error: 'not found' }, 404)
+  }
 })
 
 // ---------- refreshwindows ----------

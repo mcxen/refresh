@@ -4,6 +4,8 @@
 
 import { getSource } from './config'
 import { defaultFetcher, type Fetcher } from './fetcher'
+import { downloadAll } from './media'
+import { normalizeItem } from './normalize'
 import { ingestWindow, getWindowResource, registerWindowResource } from './resources'
 import { appendWindow, type Resource, type WindowFile } from './store'
 
@@ -78,6 +80,8 @@ async function executeWindow(run: RunningWindow, platform: string, count: number
     const source = getSource(String((resource.spec as Record<string, unknown>).source))!
     const result = await fetcher.fetch(source, count, log)
     log(`fetched ${result.rawItems.length} raw items`)
+    // 媒体本地化：先下载（manifest 登记），ingest 时回填本地地址
+    await downloadAll(collectMediaUrls(platform, result.rawItems), log)
     status.phase = 'Succeeded'
     status.finishedAt = new Date().toISOString()
     win = { ...(resource as WindowFile), rawItems: result.rawItems }
@@ -113,6 +117,18 @@ async function executeWindow(run: RunningWindow, platform: string, count: number
   emit(run, { type: 'phase', data: String(status.phase) })
   emit(run, { type: 'done', data: JSON.stringify({ phase: status.phase, stats: status.stats ?? null, error: status.error ?? null }) })
   running.delete(name)
+}
+
+function collectMediaUrls(platform: string, rawItems: unknown[]): string[] {
+  const urls: string[] = []
+  for (const raw of rawItems) {
+    const n = normalizeItem(platform, raw)
+    if (!n) continue
+    for (const m of n.message.spec.media) urls.push(m.originUrl)
+    const avatar = n.message.spec.author?.avatar
+    if (avatar && !avatar.startsWith('/')) urls.push(avatar)
+  }
+  return urls
 }
 
 function collectRefs(win: WindowFile): string[] {

@@ -70,6 +70,25 @@ assert_eq "mock excerpt one" "$(curl -s "$BASE/messages/zhihu-8001" | jq -r .spe
 RAW_ID=$(curl -s "$BASE/messages/zhihu-8001" | jq -r .spec.raw.id)
 assert_eq "8001" "$RAW_ID" "spec.raw 保留原始 payload"
 
+log "== A3/A4: created_at + 媒体本地化（mock GraphQL 链路） =="
+TW=$(curl -s "$BASE/messages/twitter-9001")
+assert_eq "2026-06-10T01:00:00.000Z" "$(echo "$TW" | jq -r .metadata.creationTimestamp)" "twitter created_at 解析"
+assert_eq "mockuser" "$(echo "$TW" | jq -r .spec.author.handle)" "GraphQL 作者解析"
+MEDIA_URL=$(echo "$TW" | jq -r '.spec.media[0].url')
+case "$MEDIA_URL" in
+  /api/v1/media/*) ok "media[0].url 已本地化 ($MEDIA_URL)" ;;
+  *) fail "media[0].url 未本地化: $MEDIA_URL" ;;
+esac
+MEDIA_CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}${MEDIA_URL}")
+assert_eq "200" "$MEDIA_CODE" "GET /api/v1/media/{hash} 可访问"
+MEDIA_TYPE=$(curl -s -o /dev/null -w '%{content_type}' "http://localhost:${PORT}${MEDIA_URL}")
+assert_eq "image/png" "$MEDIA_TYPE" "媒体 content-type 正确"
+AVATAR=$(echo "$TW" | jq -r .spec.author.avatar)
+case "$AVATAR" in
+  /api/v1/media/*) ok "头像已本地化" ;;
+  *) fail "头像未本地化: $AVATAR" ;;
+esac
+
 log "== A9: author 归类地基 =="
 assert_eq "2" "$(curl -s "$BASE/authors" | jq '.items | length')" "authors 注册表"
 assert_eq "2" "$(curl -s "$BASE/authors/zhihu-mock-author" | jq -r .status.messageCount)" "messageCount 统计"

@@ -3,6 +3,7 @@
 
 import { ACCOUNTS, getSource } from './config'
 import { normalizeItem } from './normalize'
+import { localMediaUrl } from './media'
 import {
   applyOverlay,
   listWindowNames,
@@ -52,6 +53,19 @@ export function ingestWindow(win: WindowFile): { newCount: number; dupCount: num
       existing.metadata.annotations!['radar/lastSeenWindow'] = windowName
     } else {
       newCount++
+      // 媒体/头像回填：已本地化的换成 /api/v1/media/<hash>，否则保留外链
+      for (const m of message.spec.media) m.url = m.url ?? localMediaUrl(m.originUrl)
+      // 不同尺寸参数的同一张图本地化后哈希相同，按最终地址去重
+      const seenMedia = new Set<string>()
+      message.spec.media = message.spec.media.filter(m => {
+        const key = m.url ?? m.originUrl
+        if (seenMedia.has(key)) return false
+        seenMedia.add(key)
+        return true
+      })
+      if (message.spec.author?.avatar) {
+        message.spec.author.avatar = localMediaUrl(message.spec.author.avatar) ?? message.spec.author.avatar
+      }
       messages.set(message.name, {
         apiVersion: 'radar/v1',
         kind: 'Message',
@@ -69,7 +83,7 @@ export function ingestWindow(win: WindowFile): { newCount: number; dupCount: num
           creationTimestamp: message.creationTimestamp ?? fetchedAt ?? undefined,
         },
         spec: message.spec as unknown as Record<string, unknown>,
-        status: { hydrated: false },
+        status: { hydrated: message.spec.content != null },
       })
     }
 
@@ -81,11 +95,13 @@ export function ingestWindow(win: WindowFile): { newCount: number; dupCount: num
         // 快照字段允许跟进最新（作者改名/换头像）
         Object.assign(existingAuthor.spec, stripUndefined(author.spec))
       } else {
+        const spec = stripUndefined(author.spec)
+        if (spec.avatar) spec.avatar = localMediaUrl(spec.avatar) ?? spec.avatar
         authors.set(author.name, {
           apiVersion: 'radar/v1',
           kind: 'Author',
           metadata: { name: author.name, labels: { platform }, annotations: {} },
-          spec: stripUndefined(author.spec),
+          spec,
           status: { messageCount: 1, lastSeenAt: fetchedAt },
         })
       }

@@ -14,11 +14,11 @@
 
 ## M2 CdpFetcher + 媒体本地化
 
-- [ ] M2.1 CdpFetcher 骨架：连接受管 Chrome（CDP 19825），browser_down 自愈（daemon 重启 + /json/new 建 tab）
-- [ ] M2.2 推特：拦截 HomeTimeline GraphQL，产出含 created_at/media/引用结构的 Message
-- [ ] M2.3 知乎：页面上下文调 topstory API，产出含封面图的 Message
-- [ ] M2.4 媒体管道：下载到 data/media/<sha256>，GET /api/v1/media/{hash}，知乎带 referer
-- [ ] M2.5 verify.sh 扩展，A2/A3/A4 断言通过
+- [x] M2.1 CdpFetcher 骨架：连接受管 Chrome（CDP 19825），browser_down 自愈（daemon 重启 + /json/new 建 tab）
+- [x] M2.2 推特：拦截 HomeTimeline GraphQL，产出含 created_at/media/引用结构的 Message
+- [x] M2.3 知乎：页面上下文调 topstory API，产出含封面图的 Message
+- [x] M2.4 媒体管道：下载到 data/media/<sha256>，GET /api/v1/media/{hash}，知乎带 referer
+- [x] M2.5 verify.sh 扩展，A2/A3/A4 断言通过
 
 ## M3 登录闭环
 
@@ -48,5 +48,6 @@ verify.sh 全绿（A1-A4, A6, A9）且 A5/A7/A8 均为 [A] awaiting-user → loo
 
 （每轮迭代在此追加一行：日期 / 完成项 / 备注）
 
+- 2026-06-10 / M2.1-M2.5 / cdp.ts(WS会话+自愈) cdp-twitter.ts(HomeTimeline/HomeLatestTimeline拦截,去广告,转推/引用结构) cdp-zhihu.ts(topstory API分页,自带全文content=天然hydrated) normalize 支持两代schema media.ts(sha256本地化+manifest+知乎referer+直连失败走代理RADAR_PROXY默认7890,Bun不读系统代理) /api/v1/media/{file}。实测: 两平台各15条 Succeeded,知乎封面/头像/推特图全部本地化,created_at齐。verify 31断言全绿。
 - 2026-06-10 / M1.2-M1.6 / config.ts(账号/源注册表) normalize.ts(raw→spec,容忍缺字段) resources.ts(索引+selector) fetcher.ts(bb-browser/mock) refresh.ts(统一触发,Pending→Running→终态,watch事件) api.ts(REST信封) 挂入 index.ts(PORT 可配)。verify.sh 25 断言全绿(A1/A9+mock A2+重启持久性)。M1.6 决定: 52 个旧文件包装为 window 档案迁入(scripts/migrate-legacy.ts,幂等),原文件保留供旧 UI,M5 后删;真实数据索引 327 msgs/192 authors。
 - 2026-06-10 / M1.1 / server/store.ts：window 档案（appendWindow 重名拒绝、updateWindowStatus 仅推进 status）+ overlay（浅合并、null 删 key、applyOverlay）+ 原子写；冒烟断言全过。RADAR_DATA_DIR 可覆盖供测试用。
