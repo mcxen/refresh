@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import { TanStackRouterVite } from '@tanstack/router-vite-plugin'
 import path from 'path'
 
+const apiTarget = process.env.REFRESH_API_TARGET ?? 'http://localhost:3001'
+
 export default defineConfig({
   plugins: [react(), TanStackRouterVite()],
   resolve: {
@@ -14,11 +16,11 @@ export default defineConfig({
     host: true, // 局域网可访问（与后端保持一致的全开策略）
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/rss': {
-        target: 'http://localhost:3001',
+        target: apiTarget,
         changeOrigin: true,
       },
     },
