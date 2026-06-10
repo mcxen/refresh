@@ -1,41 +1,124 @@
-# Radar — AGENTS 指南
+# Refresh — AGENTS 指南
 
-**Radar 是一个"我的账号能力" API 服务**：用我自己的登录态把知乎/推特推给我的内容变成结构化资源（k8s 风格），网页和 RSS 都是这个 API 的消费者。完整设计见 **docs/design.md**（蓝图，以它为准），实施进度见 **docs/progress.md**。
+**Refresh（原代号 radar）是一个"我的账号能力" API 服务**：用用户自己的登录态，把知乎/推特/B站推给 TA 的内容变成结构化、可编程消费的资源（k8s 风格）。网页和 RSS 都只是这个 API 的消费者。
+
+三份文档的分工：
+- **本文件**：当前架构、约定、常见任务的操作手册 —— 在这个 repo 干活先读这个；
+- **docs/design.md**：原始设计蓝图（2026-06-10 定稿），讲清了每个设计决策的"为什么"，模型层面仍然有效；
+- **docs/progress.md**：实施日志，每轮迭代的记录（含踩过的坑），查"这件事当时为什么这么做"用。
 
 ## 快速上手
 
 ```bash
-pnpm start        # 后端(bun, :3001) + 前端(vite, :5173)
+pnpm install
+pnpm start        # 后端(bun, :3001) + 前端(vite, :5173)，均监听 0.0.0.0
 pnpm server       # 仅后端
-./verify.sh       # 验收冒烟（47 断言，改完必跑）
+./verify.sh       # 验收冒烟（74 断言，全 mock 隔离环境，~40s）——改完必跑，全绿才算完
+bunx tsc --noEmit # 类型检查（vite build 不做类型检查）
 ```
 
-## 架构一览
+依赖真实环境的部分：受管 Chrome（bb-browser 拉起，CDP 127.0.0.1:19825）里有三个平台的登录态。verify.sh 不需要它（全 mock）。
+
+## 架构与文件地图
 
 ```
 server/
-  index.ts      # Hono 入口：/api/v1 + /rss，启动时建索引、预热登录态、起调度器
-  config.ts     # 账号/源注册表（account × capability，fetchVia: cdp|bb）
-  store.ts      # 两层存储：data/windows 不可变档案 + data/overlay 可变用户态
-  resources.ts  # 内存索引（Message/Author/Window），labelSelector 查询
-  normalize.ts  # raw → spec（spec.raw 永远保留原样，两代 schema 都支持）
-  refresh.ts    # RefreshWindow 执行器（统一抓取入口，Pending→Running→终态）
-  fetcher.ts    # RoutingFetcher: cdp 直连 / bb-browser / mock
-  cdp.ts        # CDP 客户端 + browser_down 自愈
-  cdp-twitter.ts# 拦截 HomeTimeline GraphQL
-  cdp-zhihu.ts  # 页面上下文调 topstory/moments API
-  media.ts      # 媒体本地化（sha256 + manifest + referer/代理）
-  auth.ts       # checkAuth（RADAR_AUTH_MOCK 可 mock）
-  login.ts      # LoginSession（知乎扫码镜像 / 推特弹窗）
-  scheduler.ts  # 30min 调度 controller（登出账号跳过）
-  rss.ts        # /rss/{source}.xml
-src/            # React 前端（react-query 直调 REST，tRPC 已退役）
+  index.ts        # Hono 入口：/api/v1 + /rss；启动时建索引、预热登录态、起调度器
+  config.ts       # 账号/源注册表（ACCOUNTS / SOURCES，account × capability）
+  store.ts        # 两层存储原语：不可变 window 档案 + 可变 overlay；原子写
+  resources.ts    # 内存索引（Message/Author/Window）、labelSelector 查询、未读计数
+  normalize.ts    # raw → spec（每平台一个 normalizer，新旧 schema 都容忍）
+  refresh.ts      # RefreshWindow 执行器：统一抓取入口，Pending→Running→终态，watch 事件
+  fetcher.ts      # RoutingFetcher（按源路由 cdp/bb）+ MockFetcher（verify 用）
+  cdp.ts          # CDP 最小客户端 + browser_down 自愈（重启 daemon + /json/new 建 tab）
+  cdp-twitter.ts  # 拦截 HomeTimeline/HomeLatestTimeline GraphQL 响应
+  cdp-zhihu.ts    # 页面上下文调 topstory/moments API（分页）
+  cdp-bilibili.ts # 页面上下文调 polymer 动态流 / popular API
+  media.ts        # 媒体本地化（sha256+manifest）、直连失败走代理、流式 media-proxy
+  auth.ts         # checkAuth（每平台一个检测分支；RADAR_AUTH_MOCK 可 mock）
+  login.ts        # LoginSession：知乎/B站扫码镜像、推特弹窗，成功后自动补抓
+  scheduler.ts    # 调度 controller：单例资源（GET/PATCH /api/v1/scheduler），落盘可开关
+  logger.ts       # rlog(scope, msg)：stdout + data/logs/refresh 按天滚动
+  rss.ts          # /rss/{source}.xml 只读视图
+  api.ts          # /api/v1 全部路由
+src/
+  api/radar.ts    # REST 客户端 + react-query hooks + 前端源注册表（与 config.ts 对应）
+  stores/uiStore.ts        # UI 偏好（zustand persist：排序/已读/布局等）
+  components/Sidebar.tsx   # 源导航+未读badge+登录状态点+每源刷新；移动端做抽屉复用
+  components/MessageCard.tsx # 卡片（list/grid 两形态、lightbox、视口自动已读）
+  components/LoginBanner.tsx # 未登录横幅 + 扫码弹窗
+  components/AdminPage.tsx   # 管理页：账号状态/调度器开关/日志 tail
+  routes/index.tsx           # feed（工具条+已读管线）/ 刷新历史 / 管理 三个视图
+scripts/migrate-legacy.ts    # 旧 data/*.json → window 档案（幂等，已跑过）
+verify.sh                    # 回归套件（也是验收清单的可执行形式）
+data/（gitignore）
+  windows/*.json   # RefreshWindow 档案：只追加不可变，含每条的原始 payload
+  overlay/*.json   # 用户态：labels、已读状态（messages.json / authors.json）
+  media/<sha256>   # 本地化媒体 + index.json（originUrl→file manifest）
+  logs/radar-*.log # 按天滚动日志
+  scheduler.json   # 调度器开关/间隔
 ```
 
-## 关键约定
+## 核心约定（动代码前必读）
 
-- **资源信封**：所有 API 对象都是 `{apiVersion: 'radar/v1', kind, metadata, spec, status}`。
-- **档案不可变**：`data/windows/*.json` 只追加；用户态（labels、已读）只写 overlay，PATCH 即时生效。
-- **GET 秒回缓存**：真实抓取只由 POST /refreshwindows、调度器、登录后补抓触发。
-- **测试环境变量**：`RADAR_DATA_DIR`（数据目录）、`RADAR_FETCHER=mock`、`RADAR_AUTH_MOCK=ok|logged_out`、`RADAR_SCHEDULER=off`、`RADAR_SCHEDULE_INTERVAL_MS`、`RADAR_AUTH_PRECHECK=off`、`PORT`。
-- **改动后必跑 `./verify.sh`**，全绿才算完。
+1. **资源信封**：API 对象都是 `{apiVersion: 'radar/v1', kind, metadata, spec, status}`。
+   `radar/v1` 与 `radar/*` annotation 前缀是**内部标识符**，已落在历史档案里，改名需迁移，别轻动。
+2. **`spec.raw` 保真**：normalized 字段全部由 raw 派生。改 normalize 逻辑后重启即对全部历史数据生效（索引重建），不需要重抓。
+3. **档案不可变 / 用户态走 overlay**：`data/windows` 只追加；已读、分类 label 等只写 `data/overlay`，PATCH 即时生效。两者分离是地基，不要往档案里写可变状态。
+4. **统一抓取入口**：一切抓取 = `POST /refreshwindows`（手动/调度/登录后补抓只差 `spec.trigger`）。GET 永远秒回缓存。
+5. **多源归属**：同一条内容被多个源推到时，归属是集合（`radar/sources` annotation），`source=` selector 按集合匹配。消息名带平台前缀全局唯一（`twitter-<id>` / `zhihu-<id>` / `bilibili-<bvid>`）。
+6. **登录态在受管 Chrome 的 profile 里**：抓取/检测/登录引导全走 CDP（bb-browser 仅用于拉起 Chrome 和开发调试）。
+7. **媒体本地化**：图片下载到本地（`/api/v1/media/<hash>`），视频不下载（poster + `media-proxy` 流式代理播放）。直连失败自动走代理（`RADAR_PROXY`，默认 127.0.0.1:7890，Bun 不读系统代理）。
+
+## API 速查
+
+```
+GET   /api/v1/messages?labelSelector=source=X&sort=unread-first&unread=true&limit=200
+GET   /api/v1/messages?names=a,b,c | ?authorSelector=category=Y
+PATCH /api/v1/messages/{name}            # overlay：labels/status（null 删 key）
+POST  /api/v1/messages/mark-read         # {names:[...]} 或 {labelSelector:""}
+GET   /api/v1/unread-counts
+GET|PATCH /api/v1/authors/{name}
+GET   /api/v1/accounts[/{name}?check=1]  # check=1 现场检测登录态
+POST  /api/v1/loginsessions  GET /loginsessions/{id}[/qr]
+POST  /api/v1/refreshwindows  GET /refreshwindows/{name}[?watch=1]   # watch=SSE
+GET|PATCH /api/v1/scheduler              # 单例：{spec:{enabled,intervalMs}}
+GET   /api/v1/logs?date=&lines=          # 日志 tail
+GET   /api/v1/media/{hash}  /api/v1/media-proxy?url=
+GET   /rss/{source}.xml  /rss/all.xml
+```
+
+## 环境变量
+
+| 变量 | 用途 | 默认 |
+|------|------|------|
+| `PORT` | 后端端口 | 3001 |
+| `RADAR_DATA_DIR` | 数据根目录（测试隔离用） | `./data` |
+| `RADAR_FETCHER` | `mock`（verify）/ `bb` / 默认按源路由 | 路由 |
+| `RADAR_AUTH_MOCK` | `ok` / `logged_out` 强制登录态 | 真实检测 |
+| `RADAR_SCHEDULER` / `RADAR_SCHEDULE_INTERVAL_MS` | 调度初始默认（落盘配置优先） | on / 30min |
+| `RADAR_AUTH_PRECHECK` | `off` 跳过启动登录态预热 | on |
+| `RADAR_PROXY` | 媒体下载代理 | http://127.0.0.1:7890 |
+| `RADAR_BASE_URL` | RSS 内媒体绝对地址（局域网阅读器要设成本机 LAN IP） | http://localhost:PORT |
+| `RADAR_CDP_PORT` | 受管 Chrome CDP 端口 | 19825 |
+
+## 常见任务怎么做
+
+**新增平台**（B 站接入实测 ≈ 半天）：
+1. `server/cdp-<platform>.ts`：开页面、页面上下文 fetch 或拦截网络响应，返回 raw items；
+2. `normalize.ts`：加 normalizer（raw → spec，注意防御性取值，平台经常 number/string 混用）；
+3. `config.ts` 加账号+源；`fetcher.ts` 路由分支；`auth.ts` 检测分支；`login.ts` 登录页配置；
+4. `src/api/radar.ts` SOURCES + `Sidebar.tsx` platforms 数组；
+5. `fetcher.ts` MockFetcher 加 mock 数据 + `verify.sh` 加断言。
+
+**调试一次抓取**：管理页看实时日志，或 `curl -X POST :3001/api/v1/refreshwindows -d '{"spec":{"source":"...","count":5}}'` 然后 `GET /refreshwindows/<name>?watch=1`。
+
+**已知坑**（详见 progress.md 迭代日志）：bb-browser daemon 会卡在失效 CDP 连接（自愈逻辑在 cdp.ts）；推特 GraphQL 的 user 字段在 legacy/core 两处都可能出现；知乎 moments 的 feed_advert 要丢、feed_group 要拆；B 站 polymer 的 `pub_ts` 是数字字符串；受管 Chrome 窗口被遮挡时 Chrome 会推迟一切媒体加载（影响验证视频播放）。
+
+## 未做（二期候选）
+
+- `POST /messages/{name}/hydrate`（知乎正文按需补全——topstory 已自带全文，目前需求不强）
+- 关注流 fetch-until-overlap（长停机断层保险，平时流速 2 条/h 远低于容量，不急）
+- 多账号管理 UI（模型已就绪：Account 资源 + 独立 profile 设计）
+- 作者归类 UI / 自动归类 controller（API 已支持：PATCH author label + authorSelector）
+- 公网暴露的 `?token=` 鉴权；SQLite 迁移（数据量大了再说）

@@ -74,7 +74,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="w-52 border-r bg-background md:bg-muted/30 flex flex-col h-full">
       <div className="p-4 border-b">
-        <h1 className="font-semibold text-lg">Radar</h1>
+        <h1 className="font-semibold text-lg">Refresh</h1>
         <p className="text-xs text-muted-foreground">信息雷达</p>
       </div>
 

@@ -17,10 +17,10 @@ rssApp.get('/:file', async c => {
   let labelSelector: string | undefined
   let title: string
   if (name === 'all') {
-    title = 'Radar — 全部源'
+    title = 'Refresh — 全部源'
   } else if (SOURCES.some(s => s.name === name)) {
     labelSelector = `source=${name}`
-    title = `Radar — ${name}`
+    title = `Refresh — ${name}`
   } else {
     return c.json({ error: `unknown feed: ${name}` }, 404)
   }

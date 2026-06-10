@@ -19,7 +19,7 @@ export function Layout({ children }: LayoutProps) {
         <button onClick={() => setDrawerOpen(true)} aria-label="菜单">
           <Menu className="h-5 w-5" />
         </button>
-        <h1 className="font-semibold">Radar</h1>
+        <h1 className="font-semibold">Refresh</h1>
         {(unread.data?.total ?? 0) > 0 && (
           <span className="ml-auto text-xs text-muted-foreground tabular-nums">{unread.data!.total} 未读</span>
         )}
