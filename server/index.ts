@@ -33,5 +33,6 @@ if (process.env.RADAR_AUTH_PRECHECK !== 'off') {
 }
 
 const port = parseInt(process.env.PORT ?? '3001', 10)
-Bun.serve({ fetch: app.fetch, port })
-rlog('server', `running on http://localhost:${port}`)
+// 有意全开（局域网设备直接访问 API/RSS）；无鉴权，勿在不可信网络运行
+Bun.serve({ fetch: app.fetch, port, hostname: '0.0.0.0' })
+rlog('server', `running on http://0.0.0.0:${port}`)
