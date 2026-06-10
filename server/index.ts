@@ -2,6 +2,9 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import { appRouter, scanAllSources } from './trpc'
+import { apiV1 } from './api'
+import { ensureDirs } from './store'
+import { buildIndex } from './resources'
 import { spawn } from 'child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -11,6 +14,11 @@ const __dirname = dirname(__filename)
 
 const app = new Hono()
 app.use('*', cors())
+
+// 资源 API（docs/design.md）
+await ensureDirs()
+await buildIndex()
+app.route('/api/v1', apiV1)
 
 // tRPC handler
 app.use('/trpc/*', async (c) => {
@@ -106,6 +114,6 @@ app.get('/api/fetch', async (c) => {
   })
 })
 
-const port = 3001
+const port = parseInt(process.env.PORT ?? '3001', 10)
 Bun.serve({ fetch: app.fetch, port })
 console.log(`Server running on http://localhost:${port}`)

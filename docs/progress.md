@@ -6,11 +6,11 @@
 ## M1 core API + 存储
 
 - [x] M1.1 存储层：data/windows + data/overlay 读写，window 档案不可变、overlay 可变分离
-- [ ] M1.2 资源信封与索引：Message/RefreshWindow/Account/Author 对象构建，启动时合并去重建索引
-- [ ] M1.3 REST 路由：GET messages（labelSelector/limit）、GET/PATCH authors、GET accounts、GET refreshwindows
-- [ ] M1.4 POST refreshwindows（异步，BbBrowserFetcher 先顶上）+ ?watch=1 SSE
-- [ ] M1.5 verify.sh 建立，A1/A9 断言通过
-- [ ] M1.6 旧 data/*.json 处理：迁为旧 schema 档案或弃用（择一，记录决定）
+- [x] M1.2 资源信封与索引：Message/RefreshWindow/Account/Author 对象构建，启动时合并去重建索引
+- [x] M1.3 REST 路由：GET messages（labelSelector/limit）、GET/PATCH authors、GET accounts、GET refreshwindows
+- [x] M1.4 POST refreshwindows（异步，BbBrowserFetcher 先顶上）+ ?watch=1 SSE
+- [x] M1.5 verify.sh 建立，A1/A9 断言通过
+- [x] M1.6 旧 data/*.json 处理：迁为旧 schema 档案或弃用（择一，记录决定）
 
 ## M2 CdpFetcher + 媒体本地化
 
@@ -48,4 +48,5 @@ verify.sh 全绿（A1-A4, A6, A9）且 A5/A7/A8 均为 [A] awaiting-user → loo
 
 （每轮迭代在此追加一行：日期 / 完成项 / 备注）
 
+- 2026-06-10 / M1.2-M1.6 / config.ts(账号/源注册表) normalize.ts(raw→spec,容忍缺字段) resources.ts(索引+selector) fetcher.ts(bb-browser/mock) refresh.ts(统一触发,Pending→Running→终态,watch事件) api.ts(REST信封) 挂入 index.ts(PORT 可配)。verify.sh 25 断言全绿(A1/A9+mock A2+重启持久性)。M1.6 决定: 52 个旧文件包装为 window 档案迁入(scripts/migrate-legacy.ts,幂等),原文件保留供旧 UI,M5 后删;真实数据索引 327 msgs/192 authors。
 - 2026-06-10 / M1.1 / server/store.ts：window 档案（appendWindow 重名拒绝、updateWindowStatus 仅推进 status）+ overlay（浅合并、null 删 key、applyOverlay）+ 原子写；冒烟断言全过。RADAR_DATA_DIR 可覆盖供测试用。
