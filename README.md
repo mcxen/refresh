@@ -1,33 +1,149 @@
 # Refresh
 
-个人信息雷达：用你自己的登录态，把知乎 / 推特 / B站推给你的内容聚合成结构化数据——一个 k8s 风格的"我的账号能力" API，配一个聚合阅读网页和标准 RSS 输出。
+Refresh 是一个自托管的个人账号 feed API：用你自己的浏览器登录态，把 X/Twitter、知乎、B 站推给你的内容采集成结构化资源，再通过网页、RSS 和 JSON API 消费。
+
+它不是多用户托管服务，也不内置第三方账号凭据。登录态、抓取到的内容、媒体缓存和日志都属于本机运行态数据，不提交到仓库。
 
 ## 它做什么
 
-- **采集**：直连 CDP 操控一个独立 profile 的 Chrome（登录态持久化），拦截/调用平台自己的接口拿原始数据——推特 GraphQL 时间线、知乎 topstory/moments、B站 polymer 动态流；
-- **结构化**：每条内容是一个 `Message` 资源（原始 payload 永久保真 + normalized 字段），每次抓取是一个 `RefreshWindow`（"这一刻平台推了我什么"）；
-- **登录闭环**：检测到掉登录 → 网页上弹二维码（镜像登录页）扫码恢复，登录态异常的账号调度器自动跳过；
-- **消费**：网页（已读追踪、未读优先排序、列表/网格布局、移动端适配）+ RSS（`/rss/<source>.xml`，图片本地化，外部阅读器可直接订阅）+ 纯 JSON API（给脚本/agent 用）；
-- **低频**：默认 30 分钟自动抓一轮（管理页可开关/调间隔），所有 GET 走缓存，不会高频打扰平台。
+- 通过 Chrome DevTools Protocol 操控一个独立的 Chrome profile。
+- 使用你自己的登录态抓取平台推荐流：
+  - X/Twitter home timeline GraphQL 响应
+  - 知乎 topstory / moments API
+  - B 站动态流 / 热门 API
+- 每次抓取保存为不可变的 `RefreshWindow` 档案。
+- 将内容归一化为 `Message` / `Author` / `Account` 等 k8s 风格资源。
+- 提供 React 阅读界面：按源过滤、未读追踪、登录恢复、手动刷新。
+- 提供 RSS：`/rss/<source>.xml` 和 `/rss/all.xml`。
+- 图片会本地化到 `data/media`，方便 RSS 阅读器稳定回源。
 
-## 跑起来
+## 隐私边界
+
+仓库只放应用代码。以下运行态路径已被 git 忽略：
+
+- `profiles/`：Chrome profile、cookies、登录态
+- `data/`：抓取内容、媒体、overlay、调度器状态、日志
+- `.env` / `.env.*`：本地部署配置
+
+公开仓库前不要把运行态目录、截图、导出的 cookie、本地环境变量文件或真实数据样例提交进来。
+
+## 本地运行
+
+依赖：
+
+- Bun
+- pnpm
+- Chrome / Chromium
+- `jq`、`xmllint`（用于 `verify.sh`）
+
+启动：
 
 ```bash
 pnpm install
-pnpm start            # 后端 :3001 + 前端 :5173（监听 0.0.0.0，局域网可访问）
-./verify.sh           # 回归测试（74 断言，全 mock，不依赖真实登录）
+pnpm start
 ```
 
-首次使用：打开 http://localhost:5173 → 未登录的平台会出横幅 → 点"去登录"扫码。数据、媒体、日志都在 `data/`（不入 git）。
+默认地址：
+
+- 后端 API：`http://localhost:3001`
+- 前端网页：`http://localhost:5173`
+
+首次使用时打开 `http://localhost:5173`。如果账号未登录，页面会提示登录；登录过程发生在受管 Chrome profile（默认 `profiles/main`）里。
+
+## Chrome 启动与登录态
+
+Refresh 不依赖外部浏览器自动化服务。后端需要访问平台时，会先检查本机 CDP：
+
+```text
+http://127.0.0.1:${RADAR_CDP_PORT}/json/version
+```
+
+如果 CDP 不可用，后端会自动拉起一个有窗口的 Chrome / Chromium：
+
+- CDP 只监听本机 `127.0.0.1`。
+- 默认 CDP 端口是 `19223`，可用 `RADAR_CDP_PORT` 修改。
+- 默认 profile 是 `profiles/main`，可用 `RADAR_PROFILE_DIR` 修改。
+- Chrome 路径会自动探测；找不到时用 `RADAR_CHROME_BIN` 指定。
+- 启动参数包含 `--remote-debugging-port` 和 `--user-data-dir`，因此登录态会持久化在 profile 目录里。
+
+登录、扫码和抓取都使用这个同一个 profile。不要把 `profiles/` 提交到仓库。
+
+Linux 服务器部署时需要有可用的图形桌面会话，因为平台登录通常需要可见窗口。`scripts/start-k2-tmux.sh` 会在 tmux 进程里补齐常见桌面环境变量：
+
+- `XDG_RUNTIME_DIR`
+- `WAYLAND_DISPLAY`
+- `DISPLAY`
+- `DBUS_SESSION_BUS_ADDRESS`
+
+如果检测到 `WAYLAND_DISPLAY`，后端启动 Chrome 时会默认追加 `--ozone-platform=wayland`。需要强制指定时可以设置：
+
+```bash
+export RADAR_CHROME_OZONE_PLATFORM=wayland
+```
+
+## 验证
+
+```bash
+bunx tsc --noEmit
+./verify.sh
+```
+
+`verify.sh` 使用隔离的 mock 数据，不依赖真实平台登录态。
+
+## 部署
+
+Refresh 运行两个进程：
+
+- 后端：`bun server/index.ts`
+- 前端/Vite 反代：`bunx vite`
+
+公网部署时，把公网地址放进环境变量，然后用反向代理或 tunnel 暴露 Vite 端口。
+
+示例：
+
+```bash
+export REFRESH_PUBLIC_URL="https://refresh.example.com"
+export SERVER_PORT=13001
+export WEB_PORT=13002
+
+scripts/start-k2-tmux.sh
+```
+
+`scripts/start-k2-tmux.sh` 会：
+
+- 在 tmux session 中启动后端和前端；
+- 用 `REFRESH_PUBLIC_URL` 设置 `RADAR_BASE_URL`，保证 RSS 里的媒体地址能回源；
+- 从 `REFRESH_PUBLIC_URL` 推导 Vite allowed host；
+- 将进程日志写入 `data/logs/`。
+
+公网代理或 tunnel 指向：
+
+```text
+http://127.0.0.1:${WEB_PORT}
+```
+
+后端通过 Vite proxy 访问，因此通常只需要暴露 Web 端口。
+
+## 常用环境变量
+
+| 变量 | 用途 | 默认 |
+| --- | --- | --- |
+| `PORT` | 后端端口 | `3001` |
+| `RADAR_DATA_DIR` | 数据根目录 | `./data` |
+| `RADAR_BASE_URL` | RSS 媒体绝对地址 | `http://localhost:$PORT` |
+| `RADAR_CDP_PORT` | 受管 Chrome CDP 端口 | `19223` |
+| `RADAR_PROFILE_DIR` | 受管 Chrome profile 目录 | `./profiles/main` |
+| `RADAR_CHROME_BIN` | Chrome 可执行文件 | 自动探测 |
+| `RADAR_CHROME_OZONE_PLATFORM` | Chrome Ozone 平台，例如 `wayland` | 检测到 `WAYLAND_DISPLAY` 时为 `wayland` |
+| `RADAR_PROXY` | 媒体下载代理 | `http://127.0.0.1:7890` |
+| `REFRESH_API_TARGET` | Vite 反代的后端地址 | `http://localhost:3001` |
+| `REFRESH_ALLOWED_HOSTS` | Vite 允许访问的 host，逗号分隔 | 未设置 |
+| `REFRESH_PUBLIC_URL` | 公网部署 URL，供 `scripts/start-k2-tmux.sh` 使用 | 脚本必填 |
 
 ## 文档
 
 | 文件 | 内容 |
-|------|------|
-| [AGENTS.md](AGENTS.md) | 架构地图、核心约定、API 速查、常见任务操作手册（在此 repo 开发先读这个） |
-| [docs/design.md](docs/design.md) | 原始设计蓝图：资源模型、登录机制、存储分层的完整推导 |
-| [docs/progress.md](docs/progress.md) | 实施日志：每轮迭代做了什么、踩了什么坑 |
-
-## 技术栈
-
-Bun + Hono（REST API）· 直连 Chrome DevTools Protocol（采集与登录）· React + TanStack Query + zustand + Tailwind（前端）· 文件存储（不可变档案 + 可变 overlay 两层）
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | 当前架构、约定、API 速查、常见任务操作手册 |
+| [docs/design.md](docs/design.md) | 原始设计蓝图和设计取舍 |
+| [docs/progress.md](docs/progress.md) | 实施日志、踩坑记录和后续候选项 |

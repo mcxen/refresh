@@ -103,6 +103,10 @@ GET   /rss/{source}.xml  /rss/all.xml
 | `RADAR_CDP_PORT` | 自管 Chrome CDP 端口 | 19223 |
 | `RADAR_PROFILE_DIR` | Chrome profile 目录 | `./profiles/main` |
 | `RADAR_CHROME_BIN` | Chrome 可执行文件（找不到时手工指定） | 自动探测 |
+| `RADAR_CHROME_OZONE_PLATFORM` | Chrome Ozone 平台（如 `wayland`） | 检测到 `WAYLAND_DISPLAY` 时为 `wayland` |
+| `REFRESH_API_TARGET` | Vite dev server 反代的后端地址 | http://localhost:3001 |
+| `REFRESH_ALLOWED_HOSTS` | Vite dev server 允许访问的公网 host（逗号分隔） | 未设置 |
+| `REFRESH_PUBLIC_URL` | `scripts/start-k2-tmux.sh` 公网部署 URL，用于 RSS 回源地址和 Vite host 白名单 | 必填 |
 
 ## 常见任务怎么做
 
