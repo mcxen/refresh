@@ -60,11 +60,16 @@ export interface RefreshWindow {
   }
 }
 
+export interface LoginChallenge {
+  fields: { name: string; label: string; kind: 'text' | 'password' }[]
+  note?: string
+}
+
 export interface LoginSession {
   kind: 'LoginSession'
   metadata: ResourceMeta
-  spec: { account: string; mode: 'qr' | 'window' }
-  status: { phase: string; error: string | null }
+  spec: { account: string; mode: 'qr' | 'password' }
+  status: { phase: string; error: string | null; challenge?: LoginChallenge | null }
 }
 
 // ---------- 静态源注册表（与 server/config.ts 对应） ----------
@@ -230,6 +235,11 @@ export function createLoginSession(account: string): Promise<LoginSession> {
 
 export function pollLoginSession(id: string): Promise<LoginSession> {
   return getJson(`/api/v1/loginsessions/${id}`)
+}
+
+/** password 模式：提交一步字段值（用户名/密码、或后续 2FA/验证码） */
+export function submitLoginInput(id: string, values: Record<string, string>): Promise<LoginSession> {
+  return send('POST', `/api/v1/loginsessions/${id}/input`, { values })
 }
 
 export function checkAccount(name: string): Promise<Account> {

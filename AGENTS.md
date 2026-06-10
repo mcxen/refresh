@@ -36,7 +36,7 @@ server/
   cdp-bilibili.ts # 页面上下文调 polymer 动态流 / popular API
   media.ts        # 媒体本地化（sha256+manifest）、直连失败走代理、流式 media-proxy
   auth.ts         # checkAuth（每平台一个检测分支；RADAR_AUTH_MOCK 可 mock）
-  login.ts        # LoginSession：知乎/B站扫码镜像、推特弹窗，成功后自动补抓
+  login.ts        # LoginSession：知乎/B站扫码镜像、推特中继输入，成功后自动补抓
   scheduler.ts    # 调度 controller：单例资源（GET/PATCH /api/v1/scheduler），落盘可开关
   logger.ts       # rlog(scope, msg)：stdout + data/logs/refresh 按天滚动
   rss.ts          # /rss/{source}.xml 只读视图
@@ -80,7 +80,7 @@ POST  /api/v1/messages/mark-read         # {names:[...]} 或 {labelSelector:""}
 GET   /api/v1/unread-counts
 GET|PATCH /api/v1/authors/{name}
 GET   /api/v1/accounts[/{name}?check=1]  # check=1 现场检测登录态
-POST  /api/v1/loginsessions  GET /loginsessions/{id}[/qr]
+POST  /api/v1/loginsessions  GET /loginsessions/{id}[/qr]  POST /loginsessions/{id}/input
 POST  /api/v1/refreshwindows  GET /refreshwindows/{name}[?watch=1]   # watch=SSE
 GET|PATCH /api/v1/scheduler              # 单例：{spec:{enabled,intervalMs}}
 GET   /api/v1/logs?date=&lines=          # 日志 tail

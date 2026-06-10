@@ -167,6 +167,24 @@ apiV1.get('/loginsessions/:id/qr', async c => {
   })
 })
 
+// password 模式：提交一步的字段值（用户名/密码、或后续 2FA/验证码）
+apiV1.post('/loginsessions/:id/input', async c => {
+  let body: { values?: Record<string, string> } = {}
+  try {
+    body = (await c.req.json()) as typeof body
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
+  if (!body.values || typeof body.values !== 'object') return c.json({ error: 'values required' }, 400)
+  const { submitLoginInput } = await import('./login')
+  try {
+    const r = await submitLoginInput(c.req.param('id'), body.values)
+    return r ? c.json(r) : c.json({ error: 'not found' }, 404)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
+  }
+})
+
 // ---------- scheduler（单例资源） ----------
 
 apiV1.get('/scheduler', async c => {
