@@ -40,6 +40,9 @@ assert_eq "radar/v1"    "$(curl -s "$BASE/accounts" | jq -r '.items[0].apiVersio
 assert_eq "zhihu-main"  "$(curl -s "$BASE/accounts/zhihu-main" | jq -r .metadata.name)" "单资源 GET"
 assert_eq "404"         "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/accounts/nope")" "未知资源 404"
 assert_eq "400"         "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/messages?labelSelector=bad")" "非法 selector 400"
+assert_eq "LogTail"     "$(curl -s "$BASE/logs" | jq -r .kind)" "日志 API 信封"
+LOG_LINES=$(curl -s "$BASE/logs" | jq '.lines | length')
+if [ "$LOG_LINES" -ge 1 ] 2>/dev/null; then ok "日志已落盘 ($LOG_LINES 行)"; else fail "日志为空"; fi
 
 log "== A2(mock): POST refreshwindows → Succeeded，档案落盘 =="
 WIN=$(curl -s -X POST "$BASE/refreshwindows" -d '{"spec":{"source":"zhihu-main-recommend","count":10,"trigger":"manual"}}')

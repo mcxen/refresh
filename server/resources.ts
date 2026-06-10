@@ -4,6 +4,7 @@
 import { ACCOUNTS, getSource } from './config'
 import { normalizeItem } from './normalize'
 import { localMediaUrl } from './media'
+import { rlog } from './logger'
 import {
   applyOverlay,
   listWindowNames,
@@ -137,10 +138,10 @@ export async function buildIndex(): Promise<void> {
     try {
       ingestWindow(await readWindowFile(name))
     } catch (err) {
-      console.error(`[index] skip corrupt window ${name}:`, err)
+      rlog('index', `skip corrupt window ${name}: ${err instanceof Error ? err.message : err}`)
     }
   }
-  console.log(`[index] built: ${messages.size} messages, ${authors.size} authors, ${windows.size} windows`)
+  rlog('index', `built: ${messages.size} messages, ${authors.size} authors, ${windows.size} windows`)
 }
 
 // ---------- 查询 ----------

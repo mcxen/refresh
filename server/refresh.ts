@@ -8,6 +8,7 @@ import { downloadAll } from './media'
 import { normalizeItem } from './normalize'
 import { ingestWindow, getWindowResource, registerWindowResource } from './resources'
 import { appendWindow, type Resource, type WindowFile } from './store'
+import { rlog } from './logger'
 
 export interface RefreshSpec {
   source: string
@@ -69,8 +70,13 @@ async function executeWindow(run: RunningWindow, platform: string, count: number
   const resource = run.resource
   const status = resource.status as Record<string, unknown>
   const name = resource.metadata.name
-  const log = (line: string) => emit(run, { type: 'log', data: line })
+  // 执行日志双写：watch SSE（实时）+ 日志文件（落盘可追溯）
+  const log = (line: string) => {
+    emit(run, { type: 'log', data: line })
+    rlog(name, line)
+  }
 
+  rlog(name, `start (trigger=${(resource.spec as Record<string, unknown>).trigger}, count=${count})`)
   status.phase = 'Running'
   status.startedAt = new Date().toISOString()
   emit(run, { type: 'phase', data: 'Running' })
@@ -116,6 +122,7 @@ async function executeWindow(run: RunningWindow, platform: string, count: number
 
   emit(run, { type: 'phase', data: String(status.phase) })
   emit(run, { type: 'done', data: JSON.stringify({ phase: status.phase, stats: status.stats ?? null, error: status.error ?? null }) })
+  rlog(name, `done: ${status.phase}${status.error ? ` (${status.error})` : ''}`)
   running.delete(name)
 }
 

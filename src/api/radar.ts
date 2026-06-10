@@ -134,6 +134,20 @@ export function useWindows() {
   })
 }
 
+export interface LogTail {
+  dates: string[]
+  date: string
+  lines: string[]
+}
+
+export function useLogs(date?: string, lines = 500) {
+  return useQuery({
+    queryKey: ['logs', date, lines],
+    queryFn: () => getJson<LogTail>(`/api/v1/logs?lines=${lines}${date ? `&date=${date}` : ''}`),
+    refetchInterval: 3000,
+  })
+}
+
 export function useInvalidate() {
   const qc = useQueryClient()
   return () => {

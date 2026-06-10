@@ -6,6 +6,7 @@ import { ensureDirs } from './store'
 import { initMedia } from './media'
 import { buildIndex } from './resources'
 import { startScheduler } from './scheduler'
+import { rlog } from './logger'
 
 const app = new Hono()
 app.use('*', cors())
@@ -26,11 +27,11 @@ if (process.env.RADAR_AUTH_PRECHECK !== 'off') {
     const { checkAuth } = await import('./auth')
     for (const a of ACCOUNTS) {
       const r = await checkAuth(a.name).catch(() => null)
-      console.log(`[auth] ${a.name}: ${r?.auth ?? 'check failed'}`)
+      rlog('auth', `${a.name}: ${r?.auth ?? 'check failed'}`)
     }
   })()
 }
 
 const port = parseInt(process.env.PORT ?? '3001', 10)
 Bun.serve({ fetch: app.fetch, port })
-console.log(`Server running on http://localhost:${port}`)
+rlog('server', `running on http://localhost:${port}`)

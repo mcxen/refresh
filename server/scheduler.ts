@@ -6,6 +6,7 @@ import { ACCOUNTS, SOURCES } from './config'
 import { checkAuth } from './auth'
 import { createRefreshWindow, getRunningWindow } from './refresh'
 import { sleep } from './cdp'
+import { rlog } from './logger'
 
 const INTERVAL_MS = parseInt(process.env.RADAR_SCHEDULE_INTERVAL_MS ?? '', 10) || 30 * 60 * 1000
 
@@ -14,10 +15,10 @@ let roundInProgress = false
 
 export function startScheduler(): void {
   if (process.env.RADAR_SCHEDULER === 'off') {
-    console.log('[scheduler] disabled (RADAR_SCHEDULER=off)')
+    rlog('scheduler', 'disabled (RADAR_SCHEDULER=off)')
     return
   }
-  console.log(`[scheduler] every ${Math.round(INTERVAL_MS / 1000)}s`)
+  rlog('scheduler', `every ${Math.round(INTERVAL_MS / 1000)}s`)
   timer = setInterval(() => void runRound(), INTERVAL_MS)
 }
 
@@ -28,15 +29,15 @@ export function stopScheduler(): void {
 
 async function runRound(): Promise<void> {
   if (roundInProgress) {
-    console.log('[scheduler] previous round still running, skip')
+    rlog('scheduler', 'previous round still running, skip')
     return
   }
   roundInProgress = true
   try {
     for (const account of ACCOUNTS) {
-      const auth = await checkAuth(account.name, s => console.log(`[scheduler] ${account.name}: ${s}`))
+      const auth = await checkAuth(account.name, s => rlog('scheduler', `${account.name}: ${s}`))
       if (auth.auth !== 'ok') {
-        console.log(`[scheduler] skip ${account.name}: ${auth.auth}`)
+        rlog('scheduler', `skip ${account.name}: ${auth.auth}`)
         continue
       }
       // 串行抓取，避免同时开太多 tab
@@ -45,7 +46,7 @@ async function runRound(): Promise<void> {
           const win = createRefreshWindow({ source: source.name, trigger: 'scheduled' })
           await waitWindowDone(win.metadata.name)
         } catch (err) {
-          console.error(`[scheduler] ${source.name} failed:`, err)
+          rlog('scheduler', `${source.name} failed: ${err instanceof Error ? err.message : err}`)
         }
       }
     }

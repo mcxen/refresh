@@ -135,6 +135,17 @@ apiV1.get('/loginsessions/:id/qr', async c => {
   })
 })
 
+// ---------- logs ----------
+
+apiV1.get('/logs', async c => {
+  const { listLogDates, readLogTail } = await import('./logger')
+  const [dates, tail] = await Promise.all([
+    listLogDates(),
+    readLogTail(c.req.query('date'), intParam(c.req.query('lines')) ?? 300),
+  ])
+  return c.json({ apiVersion: 'radar/v1', kind: 'LogTail', dates, date: tail.date, lines: tail.lines })
+})
+
 // ---------- media ----------
 
 apiV1.get('/media/:file', async c => {

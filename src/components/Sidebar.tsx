@@ -1,14 +1,8 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { cn } from '@/lib/utils'
 import { SOURCES, createRefreshWindow, useAccounts, useInvalidate, watchRefreshWindow } from '@/api/radar'
-import { Sparkles, RefreshCw, X, Layers, Rss } from 'lucide-react'
-
-interface LogEntry {
-  id: number
-  message: string
-  type: 'log' | 'error'
-}
+import { Sparkles, RefreshCw, Layers, Rss, Settings } from 'lucide-react'
 
 const AUTH_DOT: Record<string, string> = {
   ok: 'bg-green-500',
@@ -22,17 +16,7 @@ export function Sidebar() {
   const accounts = useAccounts()
   const invalidate = useInvalidate()
   const [refreshing, setRefreshing] = useState(false)
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [showLogs, setShowLogs] = useState(false)
-  const logIdRef = useRef(0)
-  const logContainerRef = useRef<HTMLDivElement>(null)
-
-  const addLog = (message: string, type: 'log' | 'error' = 'log') => {
-    setLogs(prev => [...prev.slice(-200), { id: ++logIdRef.current, message, type }])
-    setTimeout(() => {
-      logContainerRef.current?.scrollTo({ top: logContainerRef.current.scrollHeight })
-    }, 0)
-  }
+  const [lastResult, setLastResult] = useState<string | null>(null)
 
   const authOf = (account: string) =>
     accounts.data?.find(a => a.metadata.name === account)?.status.auth ?? 'unknown'
@@ -40,32 +24,32 @@ export function Sidebar() {
   const handleRefresh = async () => {
     const targets = activeSource === 'all' ? SOURCES.map(s => s.name) : [activeSource]
     setRefreshing(true)
-    setLogs([])
-    setShowLogs(true)
+    setLastResult(null)
     let remaining = targets.length
+    let failed = 0
     for (const source of targets) {
       try {
         const win = await createRefreshWindow(source)
-        addLog(`▷ ${win.metadata.name}`)
         watchRefreshWindow(
           win.metadata.name,
-          line => addLog(`  ${line}`),
+          () => {},
           result => {
-            addLog(
-              `◼ ${source}: ${result.phase}${result.error ? ` (${result.error})` : ''}`,
-              result.phase === 'Failed' ? 'error' : 'log',
-            )
+            if (result.phase === 'Failed') failed++
             remaining--
             if (remaining <= 0) {
               setRefreshing(false)
+              setLastResult(failed > 0 ? `${failed} 个源失败，详见管理页日志` : '完成')
               invalidate()
             }
           },
         )
-      } catch (err) {
-        addLog(`◼ ${source}: ${err instanceof Error ? err.message : err}`, 'error')
+      } catch {
+        failed++
         remaining--
-        if (remaining <= 0) setRefreshing(false)
+        if (remaining <= 0) {
+          setRefreshing(false)
+          setLastResult(`${failed} 个源失败，详见管理页日志`)
+        }
       }
     }
   }
@@ -116,7 +100,7 @@ export function Sidebar() {
           </div>
         ))}
 
-        <div className="pt-2 border-t mt-2">
+        <div className="pt-2 border-t mt-2 space-y-1">
           <button
             onClick={() => setView(view === 'windows' ? 'feed' : 'windows')}
             className={cn(
@@ -126,6 +110,16 @@ export function Sidebar() {
           >
             <Layers className="h-4 w-4" />
             刷新历史
+          </button>
+          <button
+            onClick={() => setView(view === 'admin' ? 'feed' : 'admin')}
+            className={cn(
+              'w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors hover:bg-accent',
+              view === 'admin' && 'bg-primary text-primary-foreground hover:bg-primary',
+            )}
+          >
+            <Settings className="h-4 w-4" />
+            管理
           </button>
         </div>
       </nav>
@@ -139,6 +133,7 @@ export function Sidebar() {
           <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
           {refreshing ? '抓取中…' : `刷新${activeSource === 'all' ? '全部' : ''}`}
         </button>
+        {lastResult && <p className="px-1">{lastResult}</p>}
         <a
           href={activeSource === 'all' ? '/rss/all.xml' : `/rss/${activeSource}.xml`}
           target="_blank"
@@ -149,25 +144,6 @@ export function Sidebar() {
           RSS 订阅当前源
         </a>
       </div>
-
-      {showLogs && (
-        <div className="border-t bg-black/95 text-green-400 text-xs font-mono">
-          <div className="flex items-center justify-between px-2 py-1 border-b border-green-900/50">
-            <span className="text-green-500">Console</span>
-            <button onClick={() => setShowLogs(false)} className="hover:text-green-200">
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-          <div ref={logContainerRef} className="max-h-32 overflow-y-auto p-2 space-y-0.5">
-            {logs.map(log => (
-              <div key={log.id} className={cn('truncate', log.type === 'error' && 'text-red-400')}>
-                {log.message}
-              </div>
-            ))}
-            {refreshing && <div className="animate-pulse">▌</div>}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useUIStore } from '@/stores/uiStore'
 import { MessageCard } from '@/components/MessageCard'
+import { AdminPage } from '@/components/AdminPage'
 import { useMessages, useMessagesByNames, useWindows, type RefreshWindow } from '@/api/radar'
 import { Loader2, ChevronLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -11,6 +12,7 @@ export const Route = createFileRoute('/')({
 
 function HomePage() {
   const view = useUIStore(s => s.view)
+  if (view === 'admin') return <AdminPage />
   return view === 'windows' ? <WindowsPage /> : <FeedPage />
 }
 

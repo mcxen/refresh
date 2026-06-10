@@ -10,6 +10,7 @@ import { checkAuth } from './auth'
 import { createRefreshWindow } from './refresh'
 import { accountStatus } from './resources'
 import type { Resource } from './store'
+import { rlog } from './logger'
 
 const LOGIN_URLS: Record<string, { url: string; mode: 'qr' | 'window'; successWhen: (href: string) => boolean }> = {
   zhihu: {
@@ -174,7 +175,7 @@ function firePostLogin(state: LoginSessionState): void {
     try {
       createRefreshWindow({ source: source.name, trigger: 'post-login' })
     } catch (err) {
-      console.error(`[login] post-login refresh failed for ${source.name}:`, err)
+      rlog('login', `post-login refresh failed for ${source.name}: ${err instanceof Error ? err.message : err}`)
     }
   }
 }
