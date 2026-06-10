@@ -17,7 +17,7 @@ pnpm server       # 仅后端
 bunx tsc --noEmit # 类型检查（vite build 不做类型检查）
 ```
 
-依赖真实环境的部分：受管 Chrome（bb-browser 拉起，CDP 127.0.0.1:19825）里有三个平台的登录态。verify.sh 不需要它（全 mock）。
+依赖真实环境的部分：自管 Chrome（首次用时自动拉起，独立 profile 在 `profiles/main`，CDP 127.0.0.1:19223）里要有三个平台的登录态——掉登录会在网页上引导扫码。verify.sh 不需要它（全 mock）。
 
 ## 架构与文件地图
 
@@ -29,8 +29,8 @@ server/
   resources.ts    # 内存索引（Message/Author/Window）、labelSelector 查询、未读计数
   normalize.ts    # raw → spec（每平台一个 normalizer，新旧 schema 都容忍）
   refresh.ts      # RefreshWindow 执行器：统一抓取入口，Pending→Running→终态，watch 事件
-  fetcher.ts      # RoutingFetcher（按源路由 cdp/bb）+ MockFetcher（verify 用）
-  cdp.ts          # CDP 最小客户端 + browser_down 自愈（重启 daemon + /json/new 建 tab）
+  fetcher.ts      # CdpFetcher（按平台路由）+ MockFetcher（verify 用）
+  cdp.ts          # CDP 最小客户端 + Chrome 自管（找可执行文件、独立 profile、自拉起）
   cdp-twitter.ts  # 拦截 HomeTimeline/HomeLatestTimeline GraphQL 响应
   cdp-zhihu.ts    # 页面上下文调 topstory/moments API（分页）
   cdp-bilibili.ts # 页面上下文调 polymer 动态流 / popular API
@@ -67,7 +67,7 @@ data/（gitignore）
 3. **档案不可变 / 用户态走 overlay**：`data/windows` 只追加；已读、分类 label 等只写 `data/overlay`，PATCH 即时生效。两者分离是地基，不要往档案里写可变状态。
 4. **统一抓取入口**：一切抓取 = `POST /refreshwindows`（手动/调度/登录后补抓只差 `spec.trigger`）。GET 永远秒回缓存。
 5. **多源归属**：同一条内容被多个源推到时，归属是集合（`radar/sources` annotation），`source=` selector 按集合匹配。消息名带平台前缀全局唯一（`twitter-<id>` / `zhihu-<id>` / `bilibili-<bvid>`）。
-6. **登录态在受管 Chrome 的 profile 里**：抓取/检测/登录引导全走 CDP（bb-browser 仅用于拉起 Chrome 和开发调试）。
+6. **登录态在自管 Chrome 的 profile 里**（`profiles/main`，gitignore）：抓取/检测/登录引导全走 CDP，零外部工具依赖。
 7. **媒体本地化**：图片下载到本地（`/api/v1/media/<hash>`），视频不下载（poster + `media-proxy` 流式代理播放）。直连失败自动走代理（`RADAR_PROXY`，默认 127.0.0.1:7890，Bun 不读系统代理）。
 
 ## API 速查
@@ -100,7 +100,9 @@ GET   /rss/{source}.xml  /rss/all.xml
 | `RADAR_AUTH_PRECHECK` | `off` 跳过启动登录态预热 | on |
 | `RADAR_PROXY` | 媒体下载代理 | http://127.0.0.1:7890 |
 | `RADAR_BASE_URL` | RSS 内媒体绝对地址（局域网阅读器要设成本机 LAN IP） | http://localhost:PORT |
-| `RADAR_CDP_PORT` | 受管 Chrome CDP 端口 | 19825 |
+| `RADAR_CDP_PORT` | 自管 Chrome CDP 端口 | 19223 |
+| `RADAR_PROFILE_DIR` | Chrome profile 目录 | `./profiles/main` |
+| `RADAR_CHROME_BIN` | Chrome 可执行文件（找不到时手工指定） | 自动探测 |
 
 ## 常见任务怎么做
 
@@ -113,7 +115,7 @@ GET   /rss/{source}.xml  /rss/all.xml
 
 **调试一次抓取**：管理页看实时日志，或 `curl -X POST :3001/api/v1/refreshwindows -d '{"spec":{"source":"...","count":5}}'` 然后 `GET /refreshwindows/<name>?watch=1`。
 
-**已知坑**（详见 progress.md 迭代日志）：bb-browser daemon 会卡在失效 CDP 连接（自愈逻辑在 cdp.ts）；推特 GraphQL 的 user 字段在 legacy/core 两处都可能出现；知乎 moments 的 feed_advert 要丢、feed_group 要拆；B 站 polymer 的 `pub_ts` 是数字字符串；受管 Chrome 窗口被遮挡时 Chrome 会推迟一切媒体加载（影响验证视频播放）。
+**已知坑**（详见 progress.md 迭代日志）：推特 GraphQL 的 user 字段在 legacy/core 两处都可能出现；知乎 moments 的 feed_advert 要丢、feed_group 要拆；B 站 polymer 的 `pub_ts` 是数字字符串；受管 Chrome 窗口被遮挡时 Chrome 会推迟一切媒体加载（影响验证视频播放）。
 
 ## 未做（二期候选）
 

@@ -1,7 +1,6 @@
-// Fetcher 抽象（docs/design.md §5）。
-// BbBrowserFetcher 是当前默认；CdpFetcher 在 M2 落地；MockFetcher 供 verify.sh 确定性测试。
+// Fetcher 抽象（docs/design.md §5）：CdpFetcher 按平台路由直连 CDP 采集；
+// MockFetcher 供 verify.sh 确定性测试（RADAR_FETCHER=mock）。
 
-import { spawn } from 'child_process'
 import type { SourceConfig } from './config'
 
 export interface FetchResult {
@@ -13,30 +12,22 @@ export interface Fetcher {
   fetch(source: SourceConfig, count: number, log: (line: string) => void): Promise<FetchResult>
 }
 
-export class BbBrowserFetcher implements Fetcher {
+/** 直连 CDP，按平台路由到对应采集器 */
+export class CdpFetcher implements Fetcher {
   async fetch(source: SourceConfig, count: number, log: (line: string) => void): Promise<FetchResult> {
-    const args = ['site', source.adapter, String(count), '--jq', '.']
-    log(`bb-browser ${args.join(' ')}`)
-    const stdout = await new Promise<string>((resolve, reject) => {
-      const proc = spawn('bb-browser', args)
-      let out = ''
-      let err = ''
-      proc.stdout.on('data', d => { out += d.toString() })
-      proc.stderr.on('data', d => {
-        err += d.toString()
-        for (const line of d.toString().split('\n')) if (line.trim()) log(`[stderr] ${line.trim()}`)
-      })
-      proc.on('close', code => {
-        if (code === 0) resolve(out)
-        else reject(new Error(`bb-browser exit ${code}: ${err.slice(-500)}`))
-      })
-      proc.on('error', reject)
-    })
-    const data = JSON.parse(stdout) as { items?: unknown[]; fetchedAt?: number }
-    return {
-      rawItems: data.items ?? [],
-      fetchedAt: data.fetchedAt ?? Math.floor(Date.now() / 1000),
+    if (source.platform === 'twitter') {
+      const { fetchTwitterTimeline } = await import('./cdp-twitter')
+      return fetchTwitterTimeline(source.capability as 'recommend' | 'following', count, log)
     }
+    if (source.platform === 'zhihu') {
+      const { fetchZhihuFeed } = await import('./cdp-zhihu')
+      return fetchZhihuFeed(source.capability as 'recommend' | 'follow', count, log)
+    }
+    if (source.platform === 'bilibili') {
+      const { fetchBilibiliFeed } = await import('./cdp-bilibili')
+      return fetchBilibiliFeed(source.capability as 'follow' | 'popular', count, log)
+    }
+    throw new Error(`no fetcher for platform ${source.platform}`)
   }
 }
 
@@ -91,28 +82,5 @@ export class MockFetcher implements Fetcher {
 }
 
 export function defaultFetcher(): Fetcher {
-  if (process.env.RADAR_FETCHER === 'mock') return new MockFetcher()
-  if (process.env.RADAR_FETCHER === 'bb') return new BbBrowserFetcher()
-  return new RoutingFetcher()
-}
-
-/** 按源路由：fetchVia=cdp 走直连 CDP（推特拿 GraphQL 全量结构），其余走 bb-browser adapter */
-export class RoutingFetcher implements Fetcher {
-  private bb = new BbBrowserFetcher()
-
-  async fetch(source: SourceConfig, count: number, log: (line: string) => void): Promise<FetchResult> {
-    if (source.fetchVia === 'cdp' && source.platform === 'twitter') {
-      const { fetchTwitterTimeline } = await import('./cdp-twitter')
-      return fetchTwitterTimeline(source.capability as 'recommend' | 'following', count, log)
-    }
-    if (source.fetchVia === 'cdp' && source.platform === 'zhihu') {
-      const { fetchZhihuFeed } = await import('./cdp-zhihu')
-      return fetchZhihuFeed(source.capability as 'recommend' | 'follow', count, log)
-    }
-    if (source.fetchVia === 'cdp' && source.platform === 'bilibili') {
-      const { fetchBilibiliFeed } = await import('./cdp-bilibili')
-      return fetchBilibiliFeed(source.capability as 'follow' | 'popular', count, log)
-    }
-    return this.bb.fetch(source, count, log)
-  }
+  return process.env.RADAR_FETCHER === 'mock' ? new MockFetcher() : new CdpFetcher()
 }

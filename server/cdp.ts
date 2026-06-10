@@ -1,13 +1,18 @@
 // 直连 CDP 的最小客户端（docs/design.md §5）。
-// 复用 bb-browser 受管 Chrome（默认 CDP 19825），不依赖其 daemon —— 不可用时自愈拉起。
+// 自管 Chrome：独立 user-data-dir（登录态持久化在 profiles/，与日常浏览器隔离），
+// 不可用时自拉起。不依赖 bb-browser。
 
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+import { spawn } from 'child_process'
+import { mkdir } from 'fs/promises'
+import { existsSync } from 'fs'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 
-const exec = promisify(execFile)
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export const CDP_HOST = '127.0.0.1'
-export const CDP_PORT = parseInt(process.env.RADAR_CDP_PORT ?? '19825', 10)
+export const CDP_PORT = parseInt(process.env.RADAR_CDP_PORT ?? '19223', 10)
+const PROFILE_DIR = process.env.RADAR_PROFILE_DIR ?? join(__dirname, '..', 'profiles', 'main')
 const HTTP_BASE = `http://${CDP_HOST}:${CDP_PORT}`
 
 // ---------- 健康检查与自愈 ----------
@@ -21,29 +26,72 @@ export async function cdpAlive(): Promise<boolean> {
   }
 }
 
-/**
- * browser_down 自愈：经 bb-browser CLI 拉起受管 Chrome（它负责找可执行文件和 profile），
- * 不可用时先重启它的 daemon（已知会卡在失效 CDP 连接上）。返回是否恢复。
- */
+function findChromeExecutable(): string | null {
+  const candidates =
+    process.platform === 'darwin'
+      ? [
+          '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+          '/Applications/Chromium.app/Contents/MacOS/Chromium',
+          '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+          '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+        ]
+      : ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/microsoft-edge']
+  return candidates.find(p => existsSync(p)) ?? null
+}
+
+/** Chrome 不可用时自拉起（有头窗口，扫码登录要用）。返回是否可用。 */
 export async function ensureBrowser(log: (s: string) => void = () => {}): Promise<boolean> {
-  if (await cdpAlive()) return true
-  log('CDP unreachable, self-healing: restarting bb-browser daemon + managed Chrome')
-  try {
-    await exec('bb-browser', ['daemon', 'shutdown'], { timeout: 10_000 }).catch(() => {})
-    // 任意命令都会触发 daemon 启动 + launchManagedBrowser
-    await exec('bb-browser', ['status'], { timeout: 20_000 }).catch(() => {})
-  } catch {
-    /* CLI 不存在等场景，下面的探测会给出结论 */
+  if (await cdpAlive()) {
+    await ensurePageTarget()
+    return true
   }
-  for (let i = 0; i < 20; i++) {
+  const executable = process.env.RADAR_CHROME_BIN ?? findChromeExecutable()
+  if (!executable) {
+    log('no Chrome executable found (set RADAR_CHROME_BIN)')
+    return false
+  }
+  log(`launching Chrome (profile=${PROFILE_DIR}, cdp=${CDP_PORT})`)
+  await mkdir(PROFILE_DIR, { recursive: true })
+  try {
+    const child = spawn(
+      executable,
+      [
+        `--remote-debugging-port=${CDP_PORT}`,
+        `--user-data-dir=${PROFILE_DIR}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-sync',
+        '--disable-session-crashed-bubble',
+        '--hide-crash-restore-bubble',
+        '--disable-features=Translate',
+        'about:blank',
+      ],
+      { detached: true, stdio: 'ignore' },
+    )
+    child.unref()
+  } catch (err) {
+    log(`Chrome launch failed: ${err instanceof Error ? err.message : err}`)
+    return false
+  }
+  for (let i = 0; i < 40; i++) {
     if (await cdpAlive()) {
-      log('CDP recovered')
+      await ensurePageTarget()
+      log('Chrome up')
       return true
     }
     await sleep(500)
   }
-  log('CDP self-heal failed')
+  log('Chrome did not come up within 20s')
   return false
+}
+
+/** Chrome 在但一个页面 target 都没有时（全部 tab 被关），补一个，否则后续操作没有落点 */
+async function ensurePageTarget(): Promise<void> {
+  try {
+    if ((await listTabs()).length === 0) await newTab('about:blank')
+  } catch {
+    /* 尽力而为 */
+  }
 }
 
 // ---------- 标签页 ----------
