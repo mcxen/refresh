@@ -21,6 +21,8 @@ const { initMedia } = await import('./media')
 await initMedia()
 await buildIndex()
 app.route('/api/v1', apiV1)
+const { startScheduler } = await import('./scheduler')
+startScheduler()
 
 // tRPC handler
 app.use('/trpc/*', async (c) => {

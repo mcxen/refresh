@@ -27,6 +27,9 @@ export async function checkAuth(accountName: string, log: (s: string) => void = 
   if (process.env.RADAR_AUTH_MOCK === 'logged_out') {
     return finish({ auth: 'logged_out', detail: 'mocked by RADAR_AUTH_MOCK' })
   }
+  if (process.env.RADAR_AUTH_MOCK === 'ok') {
+    return finish({ auth: 'ok', detail: 'mocked by RADAR_AUTH_MOCK' })
+  }
 
   if (!(await ensureBrowser(log))) {
     return finish({ auth: 'browser_down', detail: 'CDP unreachable after self-heal' })
