@@ -52,22 +52,21 @@ export async function ensureBrowser(log: (s: string) => void = () => {}): Promis
   }
   log(`launching Chrome (profile=${PROFILE_DIR}, cdp=${CDP_PORT})`)
   await mkdir(PROFILE_DIR, { recursive: true })
+  const ozonePlatform = process.env.RADAR_CHROME_OZONE_PLATFORM ?? (process.env.WAYLAND_DISPLAY ? 'wayland' : '')
+  const chromeArgs = [
+    `--remote-debugging-port=${CDP_PORT}`,
+    `--user-data-dir=${PROFILE_DIR}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-sync',
+    '--disable-session-crashed-bubble',
+    '--hide-crash-restore-bubble',
+    '--disable-features=Translate',
+    ...(ozonePlatform ? [`--ozone-platform=${ozonePlatform}`] : []),
+    'about:blank',
+  ]
   try {
-    const child = spawn(
-      executable,
-      [
-        `--remote-debugging-port=${CDP_PORT}`,
-        `--user-data-dir=${PROFILE_DIR}`,
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-sync',
-        '--disable-session-crashed-bubble',
-        '--hide-crash-restore-bubble',
-        '--disable-features=Translate',
-        'about:blank',
-      ],
-      { detached: true, stdio: 'ignore' },
-    )
+    const child = spawn(executable, chromeArgs, { detached: true, stdio: 'ignore' })
     child.unref()
   } catch (err) {
     log(`Chrome launch failed: ${err instanceof Error ? err.message : err}`)
