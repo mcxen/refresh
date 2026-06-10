@@ -82,8 +82,8 @@ function FeedPage() {
   const items = messages.data ?? []
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b px-4 py-2 flex items-center gap-4 text-xs text-muted-foreground bg-background">
-        <span className="font-medium text-foreground">{unreadCount ?? 0} 未读</span>
+      <div className="border-b px-3 md:px-4 py-2 flex items-center gap-3 md:gap-4 text-xs text-muted-foreground bg-background overflow-x-auto whitespace-nowrap [&>*]:shrink-0">
+        <span className="font-medium text-foreground tabular-nums">{unreadCount ?? 0} 未读</span>
         <div className="flex items-center gap-1">
           {(['unread-first', 'time'] as const).map(mode => (
             <button
@@ -125,11 +125,11 @@ function FeedPage() {
           className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded hover:bg-accent"
         >
           <CheckCheck className="h-3.5 w-3.5" />
-          全部已读
+          <span className="hidden sm:inline">全部已读</span>
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-4">
         {messages.isLoading && (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

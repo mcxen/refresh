@@ -11,13 +11,18 @@ const AUTH_DOT: Record<string, string> = {
   unknown: 'bg-gray-400',
 }
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { activeSource, setActiveSource, view, setView } = useUIStore()
   const accounts = useAccounts()
   const unread = useUnreadCounts()
   const invalidate = useInvalidate()
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set())
   const [lastResult, setLastResult] = useState<string | null>(null)
+
+  const nav = (fn: () => void) => () => {
+    fn()
+    onNavigate?.()
+  }
 
   const authOf = (account: string) =>
     accounts.data?.find(a => a.metadata.name === account)?.status.auth ?? 'unknown'
@@ -67,7 +72,7 @@ export function Sidebar() {
   const anyRefreshing = refreshing.size > 0
 
   return (
-    <div className="w-52 border-r bg-muted/30 flex flex-col">
+    <div className="w-52 border-r bg-background md:bg-muted/30 flex flex-col h-full">
       <div className="p-4 border-b">
         <h1 className="font-semibold text-lg">Radar</h1>
         <p className="text-xs text-muted-foreground">信息雷达</p>
@@ -75,7 +80,7 @@ export function Sidebar() {
 
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
         <button
-          onClick={() => setActiveSource('all')}
+          onClick={nav(() => setActiveSource('all'))}
           className={cn(
             'w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors hover:bg-accent',
             view === 'feed' && activeSource === 'all' && 'bg-primary text-primary-foreground hover:bg-primary',
@@ -99,7 +104,7 @@ export function Sidebar() {
               return (
                 <div key={source.name} className="group flex items-center ml-2">
                   <button
-                    onClick={() => setActiveSource(source.name)}
+                    onClick={nav(() => setActiveSource(source.name))}
                     className={cn(
                       'flex-1 flex items-center gap-1 px-3 py-1.5 text-sm rounded-md transition-colors hover:bg-accent text-left',
                       view === 'feed' && activeSource === source.name &&
@@ -119,7 +124,8 @@ export function Sidebar() {
                     title={`立即刷新 ${source.label}`}
                     className={cn(
                       'p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-opacity',
-                      busy ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                      // 触屏没有 hover，移动端常显
+                      busy ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100',
                     )}
                   >
                     <RefreshCw className={cn('h-3 w-3', busy && 'animate-spin')} />
@@ -132,7 +138,7 @@ export function Sidebar() {
 
         <div className="pt-2 border-t mt-2 space-y-1">
           <button
-            onClick={() => setView(view === 'windows' ? 'feed' : 'windows')}
+            onClick={nav(() => setView(view === 'windows' ? 'feed' : 'windows'))}
             className={cn(
               'w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors hover:bg-accent',
               view === 'windows' && 'bg-primary text-primary-foreground hover:bg-primary',
@@ -142,7 +148,7 @@ export function Sidebar() {
             刷新历史
           </button>
           <button
-            onClick={() => setView(view === 'admin' ? 'feed' : 'admin')}
+            onClick={nav(() => setView(view === 'admin' ? 'feed' : 'admin'))}
             className={cn(
               'w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors hover:bg-accent',
               view === 'admin' && 'bg-primary text-primary-foreground hover:bg-primary',
