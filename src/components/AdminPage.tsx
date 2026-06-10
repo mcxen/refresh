@@ -1,9 +1,10 @@
 // 管理页：账号状态 + 运行日志（data/logs 按天滚动文件的实时 tail）
 
 import { useEffect, useRef, useState } from 'react'
-import { checkAccount, useAccounts, useLogs } from '@/api/radar'
+import { checkAccount, patchScheduler, useAccounts, useLogs, useScheduler } from '@/api/radar'
 import { cn } from '@/lib/utils'
 import { Loader2, RotateCw } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 
 const AUTH_STYLE: Record<string, string> = {
   ok: 'bg-green-500',
@@ -12,13 +13,25 @@ const AUTH_STYLE: Record<string, string> = {
   unknown: 'bg-gray-400',
 }
 
+function fmtTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
+
 export function AdminPage() {
   const accounts = useAccounts()
+  const scheduler = useScheduler()
+  const qc = useQueryClient()
   const [date, setDate] = useState<string | undefined>(undefined)
   const [follow, setFollow] = useState(true)
   const [checking, setChecking] = useState<string | null>(null)
   const logs = useLogs(date)
   const logRef = useRef<HTMLPreElement>(null)
+
+  const updateScheduler = async (spec: { enabled?: boolean; intervalMs?: number }) => {
+    await patchScheduler(spec)
+    await qc.invalidateQueries({ queryKey: ['scheduler'] })
+  }
 
   useEffect(() => {
     if (follow && logRef.current) {
@@ -64,6 +77,41 @@ export function AdminPage() {
               </button>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-medium mb-2">定时刷新</h2>
+        <div className="border rounded-md px-3 py-2.5 flex items-center gap-4 text-sm flex-wrap">
+          <label className="flex items-center gap-2 cursor-pointer font-medium">
+            <input
+              type="checkbox"
+              checked={scheduler.data?.spec.enabled ?? false}
+              onChange={e => void updateScheduler({ enabled: e.target.checked })}
+            />
+            {scheduler.data?.spec.enabled ? '已开启' : '已关闭'}
+          </label>
+          <label className="flex items-center gap-1 text-muted-foreground">
+            间隔
+            <input
+              type="number"
+              min={1}
+              className="w-16 px-1 py-0.5 border rounded bg-background text-foreground"
+              defaultValue={Math.round((scheduler.data?.spec.intervalMs ?? 1800000) / 60000)}
+              key={scheduler.data?.spec.intervalMs}
+              onBlur={e => {
+                const minutes = parseInt(e.target.value, 10)
+                if (minutes >= 1 && minutes * 60000 !== scheduler.data?.spec.intervalMs) {
+                  void updateScheduler({ intervalMs: minutes * 60000 })
+                }
+              }}
+            />
+            分钟
+          </label>
+          <span className="text-xs text-muted-foreground ml-auto">
+            {scheduler.data?.status.running && '⟳ 正在跑一轮 · '}
+            上次 {fmtTime(scheduler.data?.status.lastRoundAt)} · 下次 {fmtTime(scheduler.data?.status.nextRoundAt)}
+          </span>
         </div>
       </section>
 

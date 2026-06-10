@@ -159,6 +159,24 @@ export function useUnreadCounts() {
   })
 }
 
+export interface Scheduler {
+  kind: 'Scheduler'
+  spec: { enabled: boolean; intervalMs: number }
+  status: { running: boolean; lastRoundAt: string | null; nextRoundAt: string | null }
+}
+
+export function useScheduler() {
+  return useQuery({
+    queryKey: ['scheduler'],
+    queryFn: () => getJson<Scheduler>('/api/v1/scheduler'),
+    refetchInterval: 10_000,
+  })
+}
+
+export function patchScheduler(spec: { enabled?: boolean; intervalMs?: number }): Promise<Scheduler> {
+  return send('PATCH', '/api/v1/scheduler', { spec })
+}
+
 /** 批量标记已读；names 或 labelSelector（'' = 全部）二选一 */
 export function markRead(target: { names?: string[]; labelSelector?: string }): Promise<{ marked: number }> {
   return send('POST', '/api/v1/messages/mark-read', target)

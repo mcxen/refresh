@@ -167,6 +167,29 @@ apiV1.get('/loginsessions/:id/qr', async c => {
   })
 })
 
+// ---------- scheduler（单例资源） ----------
+
+apiV1.get('/scheduler', async c => {
+  const { schedulerResource } = await import('./scheduler')
+  return c.json(schedulerResource())
+})
+
+apiV1.patch('/scheduler', async c => {
+  let body: Record<string, unknown> = {}
+  try {
+    body = (await c.req.json()) as Record<string, unknown>
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
+  const spec = (body.spec ?? body) as Record<string, unknown>
+  const { patchScheduler } = await import('./scheduler')
+  try {
+    return c.json(await patchScheduler(spec))
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
+  }
+})
+
 // ---------- logs ----------
 
 apiV1.get('/logs', async c => {

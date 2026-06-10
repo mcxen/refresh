@@ -139,6 +139,17 @@ esac
 assert_eq "测试UP" "$(curl -s "$BASE/authors/bilibili-42" | jq -r .spec.displayName)" "bilibili 作者注册"
 assert_eq "200" "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}/rss/bilibili-main-popular.xml")" "bilibili RSS 可用"
 
+log "== 调度器开关（单例资源） =="
+assert_eq "Scheduler" "$(curl -s "$BASE/scheduler" | jq -r .kind)" "scheduler 资源信封"
+assert_eq "false" "$(curl -s "$BASE/scheduler" | jq -r .spec.enabled)" "env off 作为初始默认"
+curl -s -X PATCH "$BASE/scheduler" -d '{"spec":{"enabled":true,"intervalMs":1200000}}' >/dev/null
+assert_eq "true" "$(curl -s "$BASE/scheduler" | jq -r .spec.enabled)" "PATCH 开启"
+assert_eq "1200000" "$(curl -s "$BASE/scheduler" | jq -r .spec.intervalMs)" "PATCH 间隔"
+assert_eq "400" "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH "$BASE/scheduler" -d '{"spec":{"intervalMs":1000}}')" "间隔下限校验"
+curl -s -X PATCH "$BASE/scheduler" -d '{"spec":{"enabled":false}}' >/dev/null
+assert_eq "false" "$(curl -s "$BASE/scheduler" | jq -r .spec.enabled)" "PATCH 关闭"
+if [ -f "$TMPDIR/scheduler.json" ]; then ok "开关状态落盘"; else fail "scheduler.json 未落盘"; fi
+
 log "== A8(半自动): RSS 输出 =="
 RSS_CODE=$(curl -s -o "$TMPDIR/feed.xml" -w '%{http_code}' "http://localhost:${PORT}/rss/zhihu-main-recommend.xml")
 assert_eq "200" "$RSS_CODE" "RSS 200"

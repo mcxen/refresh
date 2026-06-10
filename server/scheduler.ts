@@ -1,32 +1,105 @@
-// 低频调度 controller（docs/design.md §8）：每 30 分钟对每个账号先 checkAuth，
-// ok 的账号按源串行创建 scheduled RefreshWindow；logged_out 的跳过不空转（状态已写入 Account.status）。
-// RADAR_SCHEDULER=off 关闭；RADAR_SCHEDULE_INTERVAL_MS 覆盖间隔（verify 用短间隔观察）。
+// 低频调度 controller（docs/design.md §8）：每轮对每个账号先 checkAuth，
+// ok 的账号按源串行创建 scheduled RefreshWindow；logged_out 的跳过不空转。
+// 开关/间隔是运行时可改的单例资源（GET/PATCH /api/v1/scheduler），落盘 data/scheduler.json；
+// 环境变量只作为无配置文件时的初始默认（RADAR_SCHEDULER=off、RADAR_SCHEDULE_INTERVAL_MS）。
 
+import { readFile, writeFile, rename } from 'fs/promises'
+import { join } from 'path'
 import { ACCOUNTS, SOURCES } from './config'
 import { checkAuth } from './auth'
 import { createRefreshWindow, getRunningWindow } from './refresh'
 import { sleep } from './cdp'
+import { DATA_DIR, ensureDirs, type Resource } from './store'
 import { rlog } from './logger'
 
-const INTERVAL_MS = parseInt(process.env.RADAR_SCHEDULE_INTERVAL_MS ?? '', 10) || 30 * 60 * 1000
+interface SchedulerSpec {
+  enabled: boolean
+  intervalMs: number
+}
 
+const SPEC_PATH = () => join(DATA_DIR, 'scheduler.json')
+const MIN_INTERVAL_MS = 60_000
+
+let spec: SchedulerSpec = { enabled: true, intervalMs: 30 * 60 * 1000 }
 let timer: ReturnType<typeof setInterval> | null = null
+let bootstrapTimer: ReturnType<typeof setTimeout> | null = null
 let roundInProgress = false
+let lastRoundAt: string | null = null
+let nextRoundAt: string | null = null
 
-export function startScheduler(): void {
-  if (process.env.RADAR_SCHEDULER === 'off') {
-    rlog('scheduler', 'disabled (RADAR_SCHEDULER=off)')
+function envDefaults(): SchedulerSpec {
+  const interval = parseInt(process.env.RADAR_SCHEDULE_INTERVAL_MS ?? '', 10)
+  return {
+    enabled: process.env.RADAR_SCHEDULER !== 'off',
+    intervalMs: Number.isFinite(interval) && interval > 0 ? interval : 30 * 60 * 1000,
+  }
+}
+
+export async function initScheduler(): Promise<void> {
+  try {
+    const saved = JSON.parse(await readFile(SPEC_PATH(), 'utf-8')) as Partial<SchedulerSpec>
+    const def = envDefaults()
+    spec = {
+      enabled: typeof saved.enabled === 'boolean' ? saved.enabled : def.enabled,
+      intervalMs: typeof saved.intervalMs === 'number' && saved.intervalMs >= MIN_INTERVAL_MS ? saved.intervalMs : def.intervalMs,
+    }
+  } catch {
+    spec = envDefaults()
+  }
+  apply(true)
+}
+
+function apply(bootstrap = false): void {
+  if (timer) clearInterval(timer)
+  if (bootstrapTimer) clearTimeout(bootstrapTimer)
+  timer = null
+  bootstrapTimer = null
+  nextRoundAt = null
+  if (!spec.enabled) {
+    rlog('scheduler', 'disabled')
     return
   }
-  rlog('scheduler', `every ${Math.round(INTERVAL_MS / 1000)}s`)
-  timer = setInterval(() => void runRound(), INTERVAL_MS)
-  // 启动后先补一轮（稍等让登录态预热先行），否则反复重启会导致永远等不满首个间隔
-  setTimeout(() => void runRound(), Math.min(INTERVAL_MS, 60_000))
+  rlog('scheduler', `enabled, every ${Math.round(spec.intervalMs / 1000)}s`)
+  timer = setInterval(() => void runRound(), spec.intervalMs)
+  nextRoundAt = new Date(Date.now() + spec.intervalMs).toISOString()
+  if (bootstrap) {
+    // 启动后先补一轮，否则反复重启会永远等不满首个间隔
+    const delay = Math.min(spec.intervalMs, 60_000)
+    bootstrapTimer = setTimeout(() => void runRound(), delay)
+    nextRoundAt = new Date(Date.now() + delay).toISOString()
+  }
+}
+
+export function schedulerResource(): Resource {
+  return {
+    apiVersion: 'radar/v1',
+    kind: 'Scheduler',
+    metadata: { name: 'default' },
+    spec: { ...spec },
+    status: { running: roundInProgress, lastRoundAt, nextRoundAt: spec.enabled ? nextRoundAt : null },
+  }
+}
+
+export async function patchScheduler(patch: { enabled?: unknown; intervalMs?: unknown }): Promise<Resource> {
+  if (typeof patch.enabled === 'boolean') spec.enabled = patch.enabled
+  if (typeof patch.intervalMs === 'number') {
+    if (patch.intervalMs < MIN_INTERVAL_MS) throw new Error(`intervalMs must be >= ${MIN_INTERVAL_MS}`)
+    spec.intervalMs = Math.floor(patch.intervalMs)
+  }
+  await ensureDirs()
+  const tmp = `${SPEC_PATH()}.tmp-${process.pid}`
+  await writeFile(tmp, JSON.stringify(spec, null, 2), 'utf-8')
+  await rename(tmp, SPEC_PATH())
+  apply()
+  rlog('scheduler', `patched: enabled=${spec.enabled} intervalMs=${spec.intervalMs}`)
+  return schedulerResource()
 }
 
 export function stopScheduler(): void {
   if (timer) clearInterval(timer)
+  if (bootstrapTimer) clearTimeout(bootstrapTimer)
   timer = null
+  bootstrapTimer = null
 }
 
 async function runRound(): Promise<void> {
@@ -35,8 +108,11 @@ async function runRound(): Promise<void> {
     return
   }
   roundInProgress = true
+  lastRoundAt = new Date().toISOString()
+  nextRoundAt = new Date(Date.now() + spec.intervalMs).toISOString()
   try {
     for (const account of ACCOUNTS) {
+      if (!spec.enabled) break // 轮中被关闭则尽快收手
       const auth = await checkAuth(account.name, s => rlog('scheduler', `${account.name}: ${s}`))
       if (auth.auth !== 'ok') {
         rlog('scheduler', `skip ${account.name}: ${auth.auth}`)
@@ -44,6 +120,7 @@ async function runRound(): Promise<void> {
       }
       // 串行抓取，避免同时开太多 tab
       for (const source of SOURCES.filter(s => s.account === account.name)) {
+        if (!spec.enabled) break
         try {
           const win = createRefreshWindow({ source: source.name, trigger: 'scheduled' })
           await waitWindowDone(win.metadata.name)

@@ -5,7 +5,7 @@ import { rssApp } from './rss'
 import { ensureDirs } from './store'
 import { initMedia } from './media'
 import { buildIndex } from './resources'
-import { startScheduler } from './scheduler'
+import { initScheduler } from './scheduler'
 import { rlog } from './logger'
 
 const app = new Hono()
@@ -18,7 +18,7 @@ await buildIndex()
 app.route('/api/v1', apiV1)
 app.route('/rss', rssApp)
 
-startScheduler()
+await initScheduler()
 
 // 启动时后台预热登录态（不阻塞启动；mock/测试环境下走 mock 分支，零开销）
 if (process.env.RADAR_AUTH_PRECHECK !== 'off') {
