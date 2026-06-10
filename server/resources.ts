@@ -66,6 +66,13 @@ export function ingestWindow(win: WindowFile): { newCount: number; dupCount: num
       if (message.spec.author?.avatar) {
         message.spec.author.avatar = localMediaUrl(message.spec.author.avatar) ?? message.spec.author.avatar
       }
+      // 正文 HTML 里的图也换成本地化地址（RSS/UI 都不再依赖图床防盗链）
+      if (message.spec.content) {
+        message.spec.content = message.spec.content.replace(/(<img[^>]+src=")([^"]+)(")/g, (whole, pre, src, post) => {
+          const local = localMediaUrl(src)
+          return local ? `${pre}${local}${post}` : whole
+        })
+      }
       messages.set(message.name, {
         apiVersion: 'radar/v1',
         kind: 'Message',
@@ -167,10 +174,16 @@ async function withOverlay<S, T extends Record<string, unknown>>(
 export interface ListMessagesOpts {
   labelSelector?: string
   authorSelector?: string
+  /** 指定名称列表（保序），window 浏览用 */
+  names?: string[]
   limit?: number
 }
 
 export async function listMessages(opts: ListMessagesOpts) {
+  if (opts.names) {
+    const picked = opts.names.map(n => messages.get(n)).filter((m): m is NonNullable<typeof m> => !!m)
+    return withOverlay('messages', opts.limit ? picked.slice(0, opts.limit) : picked)
+  }
   const selector = parseSelector(opts.labelSelector)
   let authorRefs: Set<string> | null = null
   if (opts.authorSelector) {

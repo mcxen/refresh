@@ -30,9 +30,11 @@ function intParam(v: string | undefined): number | undefined {
 
 apiV1.get('/messages', async c => {
   try {
+    const namesParam = c.req.query('names')
     const items = await listMessages({
       labelSelector: c.req.query('labelSelector'),
       authorSelector: c.req.query('authorSelector'),
+      names: namesParam ? namesParam.split(',').slice(0, 300) : undefined,
       limit: intParam(c.req.query('limit')),
     })
     return c.json(list('Message', items))

@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'crypto'
 import { getAccount, SOURCES } from './config'
-import { CDP_HOST, CDP_PORT, closeTab, ensureBrowser, newTab, sleep, CdpSession } from './cdp'
+import { CDP_HOST, CDP_PORT, closeTab, ensureBrowser, newTab, CdpSession } from './cdp'
 import { checkAuth } from './auth'
 import { createRefreshWindow } from './refresh'
 import { accountStatus } from './resources'

@@ -1,19 +1,7 @@
-import type { Message, TwitterMessage, ZhihuMessage } from '@/types'
+import type { Message } from '@/api/radar'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
-import { Heart, MessageCircle, Repeat2, Eye, ArrowUp, Clock } from 'lucide-react'
-
-interface MessageCardProps {
-  message: Message
-  fetchedAt?: string | number | null
-}
-
-function isTwitter(msg: Message): msg is TwitterMessage {
-  return msg.type === 'twitter'
-}
-
-function isZhihu(msg: Message): msg is ZhihuMessage {
-  return msg.type === 'zhihu'
-}
+import { Heart, MessageCircle, Repeat2, Eye, ArrowUp, Clock, Repeat } from 'lucide-react'
+import { useState } from 'react'
 
 function formatNumber(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
@@ -21,12 +9,9 @@ function formatNumber(n: number): string {
   return String(n)
 }
 
-function formatFetchedAt(timestamp: string | number | null | undefined): string {
-  if (!timestamp) return ''
-  // 如果是字符串形式的 Unix 时间戳，转换为数字
-  const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp
-  if (isNaN(ts)) return ''
-  const date = new Date(ts * 1000)
+function formatTime(iso: string | undefined): string {
+  if (!iso) return ''
+  const date = new Date(iso)
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
   const day = date.getDate().toString().padStart(2, '0')
   const hours = date.getHours().toString().padStart(2, '0')
@@ -34,85 +19,137 @@ function formatFetchedAt(timestamp: string | number | null | undefined): string 
   return `${month}-${day} ${hours}:${minutes}`
 }
 
-export function MessageCard({ message, fetchedAt }: MessageCardProps) {
-  return (
-    <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => window.open(message.url, '_blank')}>
-      {isTwitter(message) && <TwitterCardContent message={message} fetchedAt={fetchedAt} />}
-      {isZhihu(message) && <ZhihuCardContent message={message} fetchedAt={fetchedAt} />}
-    </Card>
-  )
-}
+export function MessageCard({ message }: { message: Message }) {
+  const { spec, metadata } = message
+  const platform = metadata.labels?.platform
+  const [showContent, setShowContent] = useState(false)
+  const author = spec.author
 
-function TwitterCardContent({ message, fetchedAt }: { message: TwitterMessage; fetchedAt?: string | number | null }) {
   return (
-    <>
+    <Card className="hover:shadow-md transition-shadow">
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium">
-              {message.author.slice(0, 2).toUpperCase()}
-            </div>
-            <span className="font-medium text-sm">@{message.author}</span>
+        {spec.retweetedBy && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Repeat className="h-3 w-3" />@{spec.retweetedBy} 转推
           </div>
-          {fetchedAt && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Clock className="h-3 w-3" />
-              {formatFetchedAt(fetchedAt)}
-            </span>
-          )}
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            {author?.avatar ? (
+              <img src={author.avatar} alt="" className="w-8 h-8 rounded-full shrink-0 object-cover" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium shrink-0">
+                {(author?.name ?? author?.handle ?? '?').slice(0, 2)}
+              </div>
+            )}
+            <div className="min-w-0">
+              <span className="font-medium text-sm truncate block">
+                {author?.name ?? author?.handle ?? '未知'}
+                {author?.handle && platform === 'twitter' && (
+                  <span className="text-muted-foreground font-normal"> @{author.handle}</span>
+                )}
+              </span>
+            </div>
+          </div>
+          <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+            <Clock className="h-3 w-3" />
+            {formatTime(metadata.creationTimestamp)}
+          </span>
         </div>
+        {spec.title && (
+          <h3
+            className="font-medium text-sm cursor-pointer hover:underline"
+            onClick={() => spec.url && window.open(spec.url, '_blank')}
+          >
+            {spec.title}
+          </h3>
+        )}
       </CardHeader>
-      <CardContent className="pb-2">
-        <p className="text-sm whitespace-pre-wrap line-clamp-6">{message.text}</p>
-      </CardContent>
-      <CardFooter className="text-muted-foreground text-xs gap-4">
-        <span className="flex items-center gap-1">
-          <Heart className="h-3 w-3" />
-          {formatNumber(message.likes)}
-        </span>
-        <span className="flex items-center gap-1">
-          <Repeat2 className="h-3 w-3" />
-          {formatNumber(message.retweets)}
-        </span>
-        <span className="flex items-center gap-1">
-          <Eye className="h-3 w-3" />
-          {formatNumber(message.views)}
-        </span>
-      </CardFooter>
-    </>
-  )
-}
 
-function ZhihuCardContent({ message, fetchedAt }: { message: ZhihuMessage; fetchedAt?: string | number | null }) {
-  return (
-    <>
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-medium text-sm line-clamp-2">{message.title}</h3>
-          {fetchedAt && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-              <Clock className="h-3 w-3" />
-              {formatFetchedAt(fetchedAt)}
-            </span>
-          )}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {message.author.name}
-        </div>
-      </CardHeader>
-      <CardContent className="pb-2">
-        <p className="text-sm text-muted-foreground line-clamp-3">{message.excerpt}</p>
+      <CardContent className="pb-2 space-y-2">
+        {spec.text && (
+          <p
+            className="text-sm whitespace-pre-wrap line-clamp-6 cursor-pointer"
+            onClick={() => spec.url && window.open(spec.url, '_blank')}
+          >
+            {spec.text}
+          </p>
+        )}
+
+        {spec.quotedSnapshot?.text && (
+          <blockquote className="border-l-2 pl-3 text-xs text-muted-foreground">
+            <span className="font-medium">@{spec.quotedSnapshot.author}</span>: {spec.quotedSnapshot.text}
+          </blockquote>
+        )}
+
+        {spec.media.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            {spec.media.slice(0, 4).map((m, i) => (
+              <a key={i} href={m.playUrl ?? m.url ?? m.originUrl} target="_blank" rel="noreferrer" className="relative">
+                <img
+                  src={m.url ?? m.originUrl}
+                  alt=""
+                  loading="lazy"
+                  className="h-32 rounded-md object-cover border"
+                />
+                {m.type === 'video' && (
+                  <span className="absolute inset-0 flex items-center justify-center text-white text-2xl bg-black/30 rounded-md">
+                    ▶
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
+        )}
+
+        {spec.content && (
+          <div>
+            <button
+              className="text-xs text-primary hover:underline"
+              onClick={() => setShowContent(v => !v)}
+            >
+              {showContent ? '收起全文' : '展开全文'}
+            </button>
+            {showContent && (
+              <div
+                className="prose prose-sm max-w-none mt-2 text-sm [&_img]:max-w-full [&_img]:rounded-md"
+                dangerouslySetInnerHTML={{ __html: spec.content }}
+              />
+            )}
+          </div>
+        )}
       </CardContent>
+
       <CardFooter className="text-muted-foreground text-xs gap-4">
-        <span className="flex items-center gap-1">
-          <ArrowUp className="h-3 w-3" />
-          {formatNumber(message.stats.voteup_count)}
-        </span>
-        <span className="flex items-center gap-1">
-          <MessageCircle className="h-3 w-3" />
-          {formatNumber(message.stats.comment_count)}
-        </span>
+        {platform === 'twitter' ? (
+          <>
+            <span className="flex items-center gap-1">
+              <Heart className="h-3 w-3" />
+              {formatNumber(spec.stats?.likes ?? 0)}
+            </span>
+            <span className="flex items-center gap-1">
+              <Repeat2 className="h-3 w-3" />
+              {formatNumber(spec.stats?.retweets ?? 0)}
+            </span>
+            <span className="flex items-center gap-1">
+              <Eye className="h-3 w-3" />
+              {formatNumber(spec.stats?.views ?? 0)}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="flex items-center gap-1">
+              <ArrowUp className="h-3 w-3" />
+              {formatNumber(spec.stats?.voteup ?? 0)}
+            </span>
+            <span className="flex items-center gap-1">
+              <MessageCircle className="h-3 w-3" />
+              {formatNumber(spec.stats?.comments ?? 0)}
+            </span>
+          </>
+        )}
+        <span className="ml-auto">{metadata.labels?.source}</span>
       </CardFooter>
-    </>
+    </Card>
   )
 }

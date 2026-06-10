@@ -20,7 +20,7 @@ assert_eq() { # expected actual desc
 }
 
 # ---------- 启动 server ----------
-RADAR_DATA_DIR="$TMPDIR" RADAR_FETCHER=mock RADAR_SCHEDULER=off PORT=$PORT bun server/index.ts >"$TMPDIR/server.log" 2>&1 &
+RADAR_DATA_DIR="$TMPDIR" RADAR_FETCHER=mock RADAR_SCHEDULER=off RADAR_AUTH_PRECHECK=off PORT=$PORT bun server/index.ts >"$TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
 trap 'kill $SERVER_PID 2>/dev/null; rm -rf "$TMPDIR"' EXIT
 
@@ -99,6 +99,16 @@ assert_eq "0" "$(curl -s "$BASE/messages?authorSelector=category=other" | jq '.i
 curl -s -X PATCH "$BASE/messages/zhihu-8001" -d '{"labels":{"starred":"true"}}' >/dev/null
 assert_eq "true" "$(curl -s "$BASE/messages/zhihu-8001" | jq -r .metadata.labels.starred)" "PATCH message label（overlay）"
 
+log "== A8(半自动): RSS 输出 =="
+RSS_CODE=$(curl -s -o "$TMPDIR/feed.xml" -w '%{http_code}' "http://localhost:${PORT}/rss/zhihu-main-recommend.xml")
+assert_eq "200" "$RSS_CODE" "RSS 200"
+if command -v xmllint >/dev/null && xmllint --noout "$TMPDIR/feed.xml" 2>/dev/null; then ok "RSS 是合法 XML"; else fail "RSS XML 非法"; fi
+if grep -q '<guid isPermaLink="false">zhihu-8001</guid>' "$TMPDIR/feed.xml"; then ok "guid = message name"; else fail "guid 缺失"; fi
+assert_eq "404" "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}/rss/nope.xml")" "未知 feed 404"
+curl -s "http://localhost:${PORT}/rss/all.xml" | xmllint --noout - 2>/dev/null && ok "all.xml 合法" || fail "all.xml 非法"
+NAMES_COUNT=$(curl -s "$BASE/messages?names=zhihu-8001,twitter-9001,missing" | jq '.items | length')
+assert_eq "2" "$NAMES_COUNT" "messages?names= 批量查询"
+
 log "== A5(mock): 登录闭环（logged_out → LoginSession → Succeeded → 补抓） =="
 PORT2=$((PORT+1))
 BASE2="http://localhost:${PORT2}/api/v1"
@@ -146,7 +156,7 @@ kill $SERVER3_PID 2>/dev/null
 log "== 重启持久性：索引由档案+overlay 重建 =="
 kill $SERVER_PID 2>/dev/null
 wait $SERVER_PID 2>/dev/null
-RADAR_DATA_DIR="$TMPDIR" RADAR_FETCHER=mock PORT=$PORT bun server/index.ts >>"$TMPDIR/server.log" 2>&1 &
+RADAR_DATA_DIR="$TMPDIR" RADAR_FETCHER=mock RADAR_SCHEDULER=off RADAR_AUTH_PRECHECK=off PORT=$PORT bun server/index.ts >>"$TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
 for i in $(seq 1 50); do curl -sf "$BASE/accounts" >/dev/null 2>&1 && break; sleep 0.2; done
 assert_eq "4" "$(curl -s "$BASE/messages" | jq '.items | length')" "重启后 messages 恢复"

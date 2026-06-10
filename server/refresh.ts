@@ -127,6 +127,13 @@ function collectMediaUrls(platform: string, rawItems: unknown[]): string[] {
     for (const m of n.message.spec.media) urls.push(m.originUrl)
     const avatar = n.message.spec.author?.avatar
     if (avatar && !avatar.startsWith('/')) urls.push(avatar)
+    // 正文 HTML 内嵌图（知乎全文）一并本地化
+    const content = n.message.spec.content
+    if (content) {
+      for (const m of content.matchAll(/<img[^>]+src="([^"]+)"/g)) {
+        if (m[1].startsWith('http')) urls.push(m[1])
+      }
+    }
   }
   return urls
 }
