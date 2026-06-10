@@ -41,7 +41,12 @@ export async function fetchZhihuFeed(
           if (res.status === 401 || res.status === 403) return { error: 'logged_out', status: res.status }
           if (!res.ok) return { error: 'http ' + res.status, status: res.status }
           const data = await res.json()
-          out.push(...(data.data || []))
+          // 广告直接忽略；feed_group（"多人都赞了"聚合卡）拆成内含的真实条目
+          for (const it of (data.data || [])) {
+            if (!it || it.type === 'feed_advert') continue
+            if (it.type === 'feed_group' && Array.isArray(it.list)) { out.push(...it.list); continue }
+            out.push(it)
+          }
           const next = data.paging && data.paging.next
           if (!next || (data.paging && data.paging.is_end)) break
           url = next

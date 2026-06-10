@@ -54,21 +54,21 @@ for i in $(seq 1 30); do
   sleep 0.2
 done
 assert_eq "Succeeded" "$PHASE" "window 走到 Succeeded"
-assert_eq "2" "$(curl -s "$BASE/refreshwindows/$WIN_NAME" | jq -r .status.stats.new)" "stats.new 正确"
+assert_eq "3" "$(curl -s "$BASE/refreshwindows/$WIN_NAME" | jq -r .status.stats.new)" "stats.new 正确（广告丢弃、聚合卡拆开）"
 if ls "$TMPDIR/windows/$WIN_NAME.json" >/dev/null 2>&1; then ok "档案落盘"; else fail "档案未落盘"; fi
 # 同 source 再抓一轮 → 全部 duplicate
 WIN2_NAME=$(curl -s -X POST "$BASE/refreshwindows" -d '{"spec":{"source":"zhihu-main-recommend"}}' | jq -r .metadata.name)
 sleep 1
-assert_eq "2" "$(curl -s "$BASE/refreshwindows/$WIN2_NAME" | jq -r .status.stats.duplicate)" "重复轮 stats.duplicate 正确"
+assert_eq "3" "$(curl -s "$BASE/refreshwindows/$WIN2_NAME" | jq -r .status.stats.duplicate)" "重复轮 stats.duplicate 正确"
 assert_eq "400" "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/refreshwindows" -d '{"spec":{"source":"nope"}}')" "未知 source 400"
 
 log "== messages 查询 =="
 curl -s -X POST "$BASE/refreshwindows" -d '{"spec":{"source":"twitter-main-following"}}' >/dev/null
 sleep 1
-assert_eq "4" "$(curl -s "$BASE/messages" | jq '.items | length')" "全量 messages = 4"
-assert_eq "2" "$(curl -s "$BASE/messages?labelSelector=platform=zhihu" | jq '.items | length')" "labelSelector 过滤"
+assert_eq "5" "$(curl -s "$BASE/messages" | jq '.items | length')" "全量 messages = 5"
+assert_eq "3" "$(curl -s "$BASE/messages?labelSelector=platform=zhihu" | jq '.items | length')" "labelSelector 过滤"
 assert_eq "1" "$(curl -s "$BASE/messages?labelSelector=platform=zhihu&limit=1" | jq '.items | length')" "limit 生效"
-assert_eq "zhihu-8002" "$(curl -s "$BASE/messages?labelSelector=platform=zhihu" | jq -r '.items[0].metadata.name')" "按时间倒序"
+assert_eq "zhihu-8003" "$(curl -s "$BASE/messages?labelSelector=platform=zhihu" | jq -r '.items[0].metadata.name')" "按时间倒序（聚合卡内条目正常入库）"
 assert_eq "mock excerpt one" "$(curl -s "$BASE/messages/zhihu-8001" | jq -r .spec.text)" "单条 GET + normalize"
 RAW_ID=$(curl -s "$BASE/messages/zhihu-8001" | jq -r .spec.raw.id)
 assert_eq "8001" "$RAW_ID" "spec.raw 保留原始 payload"
@@ -94,10 +94,10 @@ esac
 
 log "== A9: author 归类地基 =="
 assert_eq "2" "$(curl -s "$BASE/authors" | jq '.items | length')" "authors 注册表"
-assert_eq "2" "$(curl -s "$BASE/authors/zhihu-mock-author" | jq -r .status.messageCount)" "messageCount 统计"
+assert_eq "3" "$(curl -s "$BASE/authors/zhihu-mock-author" | jq -r .status.messageCount)" "messageCount 统计"
 curl -s -X PATCH "$BASE/authors/zhihu-mock-author" -d '{"labels":{"category":"test-cat"}}' >/dev/null
 assert_eq "test-cat" "$(curl -s "$BASE/authors/zhihu-mock-author" | jq -r .metadata.labels.category)" "PATCH author label（overlay）"
-assert_eq "2" "$(curl -s "$BASE/messages?authorSelector=category=test-cat" | jq '.items | length')" "authorSelector 筛消息"
+assert_eq "3" "$(curl -s "$BASE/messages?authorSelector=category=test-cat" | jq '.items | length')" "authorSelector 筛消息"
 assert_eq "0" "$(curl -s "$BASE/messages?authorSelector=category=other" | jq '.items | length')" "authorSelector 不命中为空"
 curl -s -X PATCH "$BASE/messages/zhihu-8001" -d '{"labels":{"starred":"true"}}' >/dev/null
 assert_eq "true" "$(curl -s "$BASE/messages/zhihu-8001" | jq -r .metadata.labels.starred)" "PATCH message label（overlay）"
@@ -162,7 +162,7 @@ wait $SERVER_PID 2>/dev/null
 RADAR_DATA_DIR="$TMPDIR" RADAR_FETCHER=mock RADAR_SCHEDULER=off RADAR_AUTH_PRECHECK=off PORT=$PORT bun server/index.ts >>"$TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
 for i in $(seq 1 50); do curl -sf "$BASE/accounts" >/dev/null 2>&1 && break; sleep 0.2; done
-assert_eq "4" "$(curl -s "$BASE/messages" | jq '.items | length')" "重启后 messages 恢复"
+assert_eq "5" "$(curl -s "$BASE/messages" | jq '.items | length')" "重启后 messages 恢复"
 assert_eq "test-cat" "$(curl -s "$BASE/authors/zhihu-mock-author" | jq -r .metadata.labels.category)" "重启后 overlay 保留"
 
 log ""

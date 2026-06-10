@@ -235,11 +235,24 @@ function zhihuAuthorToken(url: string | undefined): string | undefined {
 }
 
 function normalizeZhihu(raw: Raw): NormalizedItem | null {
+  // 广告与聚合卡不产出 Message（聚合卡应先经 expandRawItems 拆开）
+  if (raw.type === 'feed_advert' || raw.type === 'feed_group') return null
+  if (typeof raw.id === 'string' && raw.id.startsWith('AD_')) return null
   // 两代 schema：CDP topstory（含 target 包装）vs bb-browser adapter 扁平对象
   if (raw.target && typeof raw.target === 'object') return normalizeZhihuTopstory(raw)
   const id = str(raw.id) ?? (num(raw.id) !== undefined ? String(raw.id) : undefined)
   if (!id) return null
-  const rawAuthor = (raw.author ?? {}) as Raw
+  let rawAuthor = (raw.author ?? {}) as Raw
+  // 旧 zhihu-follow adapter schema：作者在 meta 里（answer→answerer_*，article/pin→author_*）
+  const meta = (raw.meta ?? {}) as Raw
+  const metaName = str(meta.answerer_name) ?? str(meta.author_name)
+  const metaId = str(meta.answerer_id) ?? str(meta.author_id)
+  if (!str(rawAuthor.name) && metaName) {
+    rawAuthor = {
+      name: metaName,
+      url: metaId ? `https://www.zhihu.com/people/${metaId}` : undefined,
+    }
+  }
   const authorUrl = str(rawAuthor.url)
   const token = zhihuAuthorToken(authorUrl)
   const authorName = token ? `zhihu-${token}` : null
@@ -256,8 +269,8 @@ function normalizeZhihu(raw: Raw): NormalizedItem | null {
         author: { ref: authorName, name: str(rawAuthor.name), url: authorUrl, avatar: str(rawAuthor.avatar) ?? null },
         media: [],
         stats: {
-          voteup: num(raw.voteup_count) ?? 0,
-          comments: num(raw.comment_count) ?? 0,
+          voteup: num(raw.voteup_count) ?? num(meta.voteup_count) ?? 0,
+          comments: num(raw.comment_count) ?? num(meta.comment_count) ?? 0,
         },
         content: null,
       },
@@ -355,4 +368,24 @@ export function normalizeItem(platform: string, raw: unknown): NormalizedItem | 
   const fn = NORMALIZERS[platform]
   if (!fn || typeof raw !== 'object' || raw === null) return null
   return fn(raw as Raw)
+}
+
+/**
+ * raw 预展开（ingest 前调用）：知乎 moments 的 feed_advert（广告）丢弃、
+ * feed_group（"多人都赞了"聚合卡）拆成内含的真实 feed items。其他平台原样。
+ */
+export function expandRawItems(platform: string, rawItems: unknown[]): unknown[] {
+  if (platform !== 'zhihu') return rawItems
+  const out: unknown[] = []
+  for (const raw of rawItems) {
+    const r = raw as Raw
+    if (!r || typeof r !== 'object') continue
+    if (r.type === 'feed_advert') continue
+    if (r.type === 'feed_group' && Array.isArray(r.list)) {
+      out.push(...(r.list as unknown[]))
+      continue
+    }
+    out.push(r)
+  }
+  return out
 }

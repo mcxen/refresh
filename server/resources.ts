@@ -2,7 +2,7 @@
 // RefreshWindow 完成后通过 ingestWindow 增量并入。overlay 在读取时合并（PATCH 即时生效，无需重建）。
 
 import { ACCOUNTS, getSource } from './config'
-import { normalizeItem } from './normalize'
+import { normalizeItem, expandRawItems } from './normalize'
 import { localMediaUrl } from './media'
 import { rlog } from './logger'
 import {
@@ -38,11 +38,11 @@ export function ingestWindow(win: WindowFile): { newCount: number; dupCount: num
   const source = getSource(String((win.spec as Record<string, unknown>).source))
   const windowName = win.metadata.name
   const fetchedAt = win.metadata.creationTimestamp ?? null
+  const platform = source?.platform ?? String(windowName.split('-')[0])
   let newCount = 0
   let dupCount = 0
 
-  for (const raw of win.rawItems ?? []) {
-    const platform = source?.platform ?? String(windowName.split('-')[0])
+  for (const raw of expandRawItems(platform, win.rawItems ?? [])) {
     const normalized = normalizeItem(platform, raw)
     if (!normalized) continue
 

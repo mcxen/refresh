@@ -64,6 +64,23 @@ export class MockFetcher implements Fetcher {
         : [
             { id: '8001', title: 'mock zhihu answer', excerpt: 'mock excerpt one', created_time: 1781100000, url: 'https://www.zhihu.com/question/1/answer/8001', author: { name: '测试作者', url: 'https://www.zhihu.com/people/mock-author' } },
             { id: '8002', title: 'mock zhihu answer 2', excerpt: 'mock excerpt two', created_time: 1781103600, url: 'https://www.zhihu.com/question/1/answer/8002', author: { name: '测试作者', url: 'https://www.zhihu.com/people/mock-author' } },
+            // 广告：必须被整条丢弃
+            { id: 'AD_999_123', type: 'feed_advert', ad: {}, brief: 'ad' },
+            // 聚合卡：必须拆出内含的真实条目（zhihu-8003）
+            {
+              id: '2_999_1', type: 'feed_group', group_text: '都赞了',
+              list: [
+                {
+                  id: 'g1', type: 'feed', verb: 'MEMBER_VOTEUP_ANSWER',
+                  target: {
+                    type: 'answer', id: '8003', excerpt: 'mock group inner', created_time: 1781107200,
+                    question: { title: 'mock group question', id: '77' },
+                    author: { name: '测试作者', url_token: 'mock-author' },
+                    voteup_count: 1, comment_count: 0,
+                  },
+                },
+              ],
+            },
           ]
     return { rawItems: items.slice(0, count), fetchedAt: 1781110000 }
   }

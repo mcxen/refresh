@@ -5,7 +5,7 @@
 import { getSource } from './config'
 import { defaultFetcher, type Fetcher } from './fetcher'
 import { downloadAll } from './media'
-import { normalizeItem } from './normalize'
+import { normalizeItem, expandRawItems } from './normalize'
 import { ingestWindow, getWindowResource, registerWindowResource } from './resources'
 import { appendWindow, type Resource, type WindowFile } from './store'
 import { rlog } from './logger'
@@ -128,7 +128,7 @@ async function executeWindow(run: RunningWindow, platform: string, count: number
 
 function collectMediaUrls(platform: string, rawItems: unknown[]): string[] {
   const urls: string[] = []
-  for (const raw of rawItems) {
+  for (const raw of expandRawItems(platform, rawItems)) {
     const n = normalizeItem(platform, raw)
     if (!n) continue
     for (const m of n.message.spec.media) urls.push(m.originUrl)
