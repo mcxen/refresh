@@ -277,8 +277,14 @@ apiV1.patch('/save-config', async c => {
   const config = await readSaveConfig()
   const spec = (body.spec ?? body) as Record<string, unknown>
   if (typeof spec.enabled === 'boolean') config.spec.enabled = spec.enabled
+  if (spec.mode === 'keyword' || spec.mode === 'timerange' || spec.mode === 'full') config.spec.mode = spec.mode
+  if (Array.isArray(spec.keywords)) config.spec.keywords = spec.keywords
+  if (spec.timerange && typeof spec.timerange === 'object') {
+    config.spec.timerange = { ...config.spec.timerange, ...spec.timerange } as { start: string; end: string }
+  }
   if (spec.format === 'markdown' || spec.format === 'singlefile') config.spec.format = spec.format
   if (typeof spec.savePath === 'string') config.spec.savePath = spec.savePath
+  if (Array.isArray(spec.sourceFilter)) config.spec.sourceFilter = spec.sourceFilter
   await writeSaveConfig(config)
   return c.json(config)
 })

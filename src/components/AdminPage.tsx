@@ -36,7 +36,15 @@ export function AdminPage() {
     await qc.invalidateQueries({ queryKey: ['scheduler'] })
   }
 
-  const updateSaveConfig = async (spec: { enabled?: boolean; format?: string; savePath?: string }) => {
+  const updateSaveConfig = async (spec: {
+    enabled?: boolean
+    mode?: string
+    keywords?: string[]
+    timerange?: { start: string; end: string }
+    format?: string
+    savePath?: string
+    sourceFilter?: string[]
+  }) => {
     await patchSaveConfig(spec)
     await qc.invalidateQueries({ queryKey: ['save-config'] })
   }
@@ -147,15 +155,29 @@ export function AdminPage() {
       <section>
         <h2 className="font-medium mb-2">保存设置</h2>
         <div className="border rounded-md px-3 py-2.5 space-y-3 text-sm">
-          <label className="flex items-center gap-2 cursor-pointer font-medium">
-            <input
-              type="checkbox"
-              checked={saveConfig.data?.spec.enabled ?? true}
-              onChange={e => void updateSaveConfig({ enabled: e.target.checked })}
-            />
-            启用保存
-          </label>
-          <div className="flex items-center gap-4 text-muted-foreground flex-wrap">
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 cursor-pointer font-medium">
+              <input
+                type="checkbox"
+                checked={saveConfig.data?.spec.enabled ?? true}
+                onChange={e => void updateSaveConfig({ enabled: e.target.checked })}
+              />
+              {saveConfig.data?.spec.enabled ? '已启用' : '已禁用'}
+            </label>
+
+            <label className="flex items-center gap-2">
+              模式
+              <select
+                value={saveConfig.data?.spec.mode ?? 'full'}
+                onChange={e => void updateSaveConfig({ mode: e.target.value })}
+                className="px-2 py-1 border rounded bg-background text-foreground"
+              >
+                <option value="full">全量</option>
+                <option value="keyword">关键字匹配</option>
+                <option value="timerange">时间范围</option>
+              </select>
+            </label>
+
             <label className="flex items-center gap-2">
               格式
               <select
@@ -167,23 +189,81 @@ export function AdminPage() {
                 <option value="singlefile" disabled>SingleFile (Phase 2)</option>
               </select>
             </label>
-            <label className="flex items-center gap-2 flex-1 min-w-[200px]">
+          </div>
+
+          {saveConfig.data?.spec.mode === 'keyword' && (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground shrink-0">关键词</span>
+              <input
+                type="text"
+                defaultValue={saveConfig.data?.spec.keywords?.join(', ')}
+                onBlur={e => {
+                  const kw = e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                  void updateSaveConfig({ keywords: kw })
+                }}
+                className="flex-1 px-2 py-1 border rounded bg-background text-foreground"
+                placeholder="关键词1, 关键词2, ..."
+              />
+            </div>
+          )}
+
+          {saveConfig.data?.spec.mode === 'timerange' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-muted-foreground">时间</span>
+              <input
+                type="datetime-local"
+                defaultValue={saveConfig.data?.spec.timerange?.start || ''}
+                onBlur={e => {
+                  const r = { ...saveConfig.data!.spec.timerange, start: e.target.value || '' }
+                  void updateSaveConfig({ timerange: r })
+                }}
+                className="px-2 py-1 border rounded bg-background text-foreground text-xs"
+              />
+              <span className="text-muted-foreground">至</span>
+              <input
+                type="datetime-local"
+                defaultValue={saveConfig.data?.spec.timerange?.end || ''}
+                onBlur={e => {
+                  const r = { ...saveConfig.data!.spec.timerange, end: e.target.value || '' }
+                  void updateSaveConfig({ timerange: r })
+                }}
+                className="px-2 py-1 border rounded bg-background text-foreground text-xs"
+              />
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="flex items-center gap-2 text-muted-foreground">
               路径
               <input
                 type="text"
-                value={saveConfig.data?.spec.savePath ?? ''}
-                onChange={e => void updateSaveConfig({ savePath: e.target.value })}
-                className="flex-1 px-2 py-1 border rounded bg-background text-foreground"
+                defaultValue={saveConfig.data?.spec.savePath ?? ''}
+                onBlur={e => void updateSaveConfig({ savePath: e.target.value })}
+                className="w-64 px-2 py-1 border rounded bg-background text-foreground"
                 placeholder="data/saved"
               />
             </label>
+            <label className="flex items-center gap-2 text-muted-foreground">
+              源筛选
+              <input
+                type="text"
+                defaultValue={saveConfig.data?.spec.sourceFilter?.join(', ')}
+                onBlur={e => {
+                  const sf = e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                  void updateSaveConfig({ sourceFilter: sf })
+                }}
+                className="w-48 px-2 py-1 border rounded bg-background text-foreground"
+                placeholder="twitter, zhihu, bilibili"
+              />
+            </label>
           </div>
+
           <button
             onClick={() => void triggerSave()}
             disabled={saving || !saveConfig.data?.spec.enabled}
             className="px-3 py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
           >
-            {saving ? '保存中...' : '保存所有未读消息'}
+            {saving ? '保存中...' : '按规则保存'}
           </button>
         </div>
       </section>

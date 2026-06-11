@@ -252,7 +252,15 @@ export function checkAccount(name: string): Promise<Account> {
 export interface SaveConfig {
   kind: 'SaveConfig'
   metadata: ResourceMeta
-  spec: { enabled: boolean; format: 'markdown' | 'singlefile'; savePath: string }
+  spec: {
+    enabled: boolean
+    mode: 'keyword' | 'timerange' | 'full'
+    keywords: string[]
+    timerange: { start: string; end: string }
+    format: 'markdown' | 'singlefile'
+    savePath: string
+    sourceFilter: string[]
+  }
   status: Record<string, never>
 }
 
@@ -278,7 +286,15 @@ export function useSaveHistory() {
   })
 }
 
-export function patchSaveConfig(spec: { enabled?: boolean; format?: string; savePath?: string }): Promise<SaveConfig> {
+export function patchSaveConfig(spec: {
+  enabled?: boolean
+  mode?: string
+  keywords?: string[]
+  timerange?: { start: string; end: string }
+  format?: string
+  savePath?: string
+  sourceFilter?: string[]
+}): Promise<SaveConfig> {
   return send('PATCH', '/api/v1/save-config', { spec })
 }
 
