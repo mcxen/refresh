@@ -1,7 +1,7 @@
 // 管理页：账号状态 + 运行日志（data/logs 按天滚动文件的实时 tail）
 
 import { useEffect, useRef, useState } from 'react'
-import { checkAccount, patchScheduler, useAccounts, useLogs, useScheduler } from '@/api/radar'
+import { checkAccount, patchScheduler, patchSaveConfig, saveMessages, useAccounts, useLogs, useScheduler, useSaveConfig, useSaveHistory } from '@/api/radar'
 import { cn } from '@/lib/utils'
 import { Loader2, RotateCw } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -21,16 +21,45 @@ function fmtTime(iso: string | null | undefined): string {
 export function AdminPage() {
   const accounts = useAccounts()
   const scheduler = useScheduler()
+  const saveConfig = useSaveConfig()
+  const saveHistory = useSaveHistory()
   const qc = useQueryClient()
   const [date, setDate] = useState<string | undefined>(undefined)
   const [follow, setFollow] = useState(true)
   const [checking, setChecking] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const logs = useLogs(date)
   const logRef = useRef<HTMLPreElement>(null)
 
   const updateScheduler = async (spec: { enabled?: boolean; intervalMs?: number }) => {
     await patchScheduler(spec)
     await qc.invalidateQueries({ queryKey: ['scheduler'] })
+  }
+
+  const updateSaveConfig = async (spec: { enabled?: boolean; format?: string; savePath?: string }) => {
+    await patchSaveConfig(spec)
+    await qc.invalidateQueries({ queryKey: ['save-config'] })
+  }
+
+  const triggerSave = async () => {
+    setSaving(true)
+    try {
+      // 示例：保存所有未读消息（实际使用时可以让用户选择）
+      const res = await fetch('/api/v1/messages?unread=true&limit=200')
+      const data = await res.json()
+      const names = (data.items || []).map((m: { metadata: { name: string } }) => m.metadata.name)
+      if (names.length === 0) {
+        alert('没有未读消息可保存')
+        return
+      }
+      await saveMessages(names, saveConfig.data?.spec.format)
+      await qc.invalidateQueries({ queryKey: ['save-history'] })
+      alert(`已开始保存 ${names.length} 条消息`)
+    } catch (err) {
+      alert(`保存失败: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   useEffect(() => {
@@ -112,6 +141,80 @@ export function AdminPage() {
             {scheduler.data?.status.running && '⟳ 正在跑一轮 · '}
             上次 {fmtTime(scheduler.data?.status.lastRoundAt)} · 下次 {fmtTime(scheduler.data?.status.nextRoundAt)}
           </span>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-medium mb-2">保存设置</h2>
+        <div className="border rounded-md px-3 py-2.5 space-y-3 text-sm">
+          <label className="flex items-center gap-2 cursor-pointer font-medium">
+            <input
+              type="checkbox"
+              checked={saveConfig.data?.spec.enabled ?? true}
+              onChange={e => void updateSaveConfig({ enabled: e.target.checked })}
+            />
+            启用保存
+          </label>
+          <div className="flex items-center gap-4 text-muted-foreground flex-wrap">
+            <label className="flex items-center gap-2">
+              格式
+              <select
+                value={saveConfig.data?.spec.format ?? 'markdown'}
+                onChange={e => void updateSaveConfig({ format: e.target.value })}
+                className="px-2 py-1 border rounded bg-background text-foreground"
+              >
+                <option value="markdown">Markdown</option>
+                <option value="singlefile" disabled>SingleFile (Phase 2)</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 flex-1 min-w-[200px]">
+              路径
+              <input
+                type="text"
+                value={saveConfig.data?.spec.savePath ?? ''}
+                onChange={e => void updateSaveConfig({ savePath: e.target.value })}
+                className="flex-1 px-2 py-1 border rounded bg-background text-foreground"
+                placeholder="data/saved"
+              />
+            </label>
+          </div>
+          <button
+            onClick={() => void triggerSave()}
+            disabled={saving || !saveConfig.data?.spec.enabled}
+            className="px-3 py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saving ? '保存中...' : '保存所有未读消息'}
+          </button>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-medium mb-2">保存历史</h2>
+        <div className="border rounded-md divide-y max-h-48 overflow-auto">
+          {(saveHistory.data ?? []).length === 0 && (
+            <div className="px-3 py-2 text-sm text-muted-foreground">暂无保存记录</div>
+          )}
+          {(saveHistory.data ?? []).map(r => (
+            <div key={r.metadata.name} className="px-3 py-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {new Date(r.metadata.creationTimestamp || '').toLocaleString('zh-CN')}
+                </span>
+                <span className="text-xs px-1.5 py-0.5 rounded bg-muted">{r.spec.format}</span>
+                <span className={cn('text-xs font-medium', r.status.phase === 'Succeeded' ? 'text-green-600' : r.status.phase === 'Failed' ? 'text-red-600' : 'text-yellow-600')}>
+                  {r.status.phase}
+                </span>
+              </div>
+              {r.status.phase === 'Succeeded' && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  已保存 {r.status.savedCount} 条 → {r.status.outputPath}
+                </div>
+              )}
+              {r.status.error && (
+                <div className="text-xs text-red-600 mt-1">{r.status.error}</div>
+              )}
+            </div>
+          ))}
         </div>
       </section>
 

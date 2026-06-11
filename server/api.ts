@@ -259,6 +259,51 @@ apiV1.get('/media-proxy', async c => {
   }
 })
 
+// ---------- save ----------
+
+apiV1.get('/save-config', async c => {
+  const { readSaveConfig } = await import('./save')
+  return c.json(await readSaveConfig())
+})
+
+apiV1.patch('/save-config', async c => {
+  let body: Record<string, unknown> = {}
+  try {
+    body = (await c.req.json()) as Record<string, unknown>
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
+  const { readSaveConfig, writeSaveConfig } = await import('./save')
+  const config = await readSaveConfig()
+  const spec = (body.spec ?? body) as Record<string, unknown>
+  if (typeof spec.enabled === 'boolean') config.spec.enabled = spec.enabled
+  if (spec.format === 'markdown' || spec.format === 'singlefile') config.spec.format = spec.format
+  if (typeof spec.savePath === 'string') config.spec.savePath = spec.savePath
+  await writeSaveConfig(config)
+  return c.json(config)
+})
+
+apiV1.get('/save/history', async c => {
+  const { readSaveHistory } = await import('./save')
+  return c.json(list('SaveRecord', await readSaveHistory()))
+})
+
+apiV1.post('/save/messages', async c => {
+  let body: { names?: string[]; format?: string } = {}
+  try {
+    body = (await c.req.json()) as typeof body
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
+  if (!Array.isArray(body.names) || body.names.length === 0) {
+    return c.json({ error: 'names required' }, 400)
+  }
+  const format = body.format === 'singlefile' ? 'singlefile' : 'markdown'
+  const { saveMessages } = await import('./save')
+  const record = await saveMessages(body.names.slice(0, 500), format)
+  return c.json(record, 202)
+})
+
 // ---------- refreshwindows ----------
 
 apiV1.get('/refreshwindows', c => {

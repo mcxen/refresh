@@ -246,3 +246,42 @@ export function submitLoginInput(id: string, values: Record<string, string>): Pr
 export function checkAccount(name: string): Promise<Account> {
   return getJson(`/api/v1/accounts/${name}?check=1`)
 }
+
+// ---------- 保存/导出 ----------
+
+export interface SaveConfig {
+  kind: 'SaveConfig'
+  metadata: ResourceMeta
+  spec: { enabled: boolean; format: 'markdown' | 'singlefile'; savePath: string }
+  status: Record<string, never>
+}
+
+export interface SaveRecord {
+  kind: 'SaveRecord'
+  metadata: ResourceMeta
+  spec: { messageNames: string[]; format: string; trigger: string }
+  status: { phase: string; savedCount: number; outputPath: string | null; error: string | null }
+}
+
+export function useSaveConfig() {
+  return useQuery({
+    queryKey: ['save-config'],
+    queryFn: () => getJson<SaveConfig>('/api/v1/save-config'),
+  })
+}
+
+export function useSaveHistory() {
+  return useQuery({
+    queryKey: ['save-history'],
+    queryFn: () => getJson<{ items: SaveRecord[] }>('/api/v1/save/history').then(r => r.items),
+    refetchInterval: 5000,
+  })
+}
+
+export function patchSaveConfig(spec: { enabled?: boolean; format?: string; savePath?: string }): Promise<SaveConfig> {
+  return send('PATCH', '/api/v1/save-config', { spec })
+}
+
+export function saveMessages(names: string[], format?: 'markdown' | 'singlefile'): Promise<SaveRecord> {
+  return send('POST', '/api/v1/save/messages', { names, format })
+}
