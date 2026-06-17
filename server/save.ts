@@ -1,6 +1,6 @@
 // 保存/导出功能：Markdown 导出、配置管理、保存记录
 
-import { copyFile, mkdir, readFile, writeFile } from 'fs/promises'
+import { copyFile, mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { spawn } from 'child_process'
 import { basename, join, dirname } from 'path'
 import { DATA_DIR, type Resource } from './store'
@@ -153,6 +153,10 @@ function uniqueBaseName(baseName: string, used: Set<string>): string {
 
 function markdownEscape(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/\]/g, '\\]')
+}
+
+function htmlEscape(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 function formatMarkdown(message: Resource<MessageSpec>, assets: MediaAssetMap = new Map()): string {
@@ -346,15 +350,90 @@ async function resolveLocalMediaFile(url: string): Promise<string | null> {
 
 async function saveSingleFile(message: Resource<MessageSpec>, outputDir: string, baseName: string): Promise<string> {
   await mkdir(outputDir, { recursive: true })
-  const url = message.spec.url
-  if (!url) throw new Error(`message has no source URL: ${message.metadata.name}`)
-
   const filename = sanitizeFilename(`${baseName}.html`)
   const filepath = join(outputDir, filename)
+  if (shouldUseSingleFileSnapshot(message)) {
+    await saveSingleFileSnapshot(message, outputDir, baseName, filepath)
+    return filepath
+  }
+
+  const url = message.spec.url
+  if (!url) throw new Error(`message has no source URL: ${message.metadata.name}`)
+  await runSingleFile(url, filepath, true)
+  return filepath
+}
+
+function shouldUseSingleFileSnapshot(message: Resource<MessageSpec>): boolean {
+  return message.metadata.labels?.platform === 'zhihu' && !!(message.spec.content || message.spec.text || message.spec.media.length)
+}
+
+async function saveSingleFileSnapshot(
+  message: Resource<MessageSpec>,
+  outputDir: string,
+  baseName: string,
+  filepath: string,
+): Promise<void> {
+  const assets = await materializeMarkdownAssets(message, outputDir, baseName)
+  const sourcePath = join(outputDir, sanitizeFilename(`.${baseName}.singlefile-source.html`))
+  await writeFile(sourcePath, formatSingleFileSourceHtml(message, assets), 'utf-8')
+  try {
+    await runSingleFile(sourcePath, filepath, false)
+  } finally {
+    await unlink(sourcePath).catch(() => {})
+  }
+}
+
+function formatSingleFileSourceHtml(message: Resource<MessageSpec>, assets: MediaAssetMap): string {
+  const spec = message.spec
+  const title = spec.title || spec.text?.slice(0, 50) || '无标题'
+  const author = spec.author?.name || '未知作者'
+  const source = message.metadata.labels?.source || message.metadata.labels?.platform || '未知来源'
+  const url = spec.url || ''
+  const date = message.metadata.creationTimestamp || ''
+  const body = spec.content
+    ? rewriteHtmlMediaRefs(spec.content, assets)
+    : `<p>${htmlEscape(spec.text || '')}</p>`
+  const media = spec.content
+    ? ''
+    : spec.media
+      .map(m => {
+        if (m.type !== 'image') return ''
+        const src = assets.get(m.url ?? '') ?? assets.get(m.originUrl) ?? m.url ?? m.originUrl
+        return `<figure><img src="${htmlEscape(src)}" alt=""></figure>`
+      })
+      .join('\n')
+
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${htmlEscape(title)}</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.72;margin:0;background:#f7f7f5;color:#171717}
+    main{max-width:760px;margin:0 auto;padding:40px 20px 72px;background:#fff;min-height:100vh}
+    h1{font-size:28px;line-height:1.25;margin:0 0 12px}
+    .meta{color:#666;font-size:14px;margin-bottom:28px}
+    a{color:#2563eb}
+    img{max-width:100%;height:auto;border-radius:8px}
+    figure{margin:18px 0}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${htmlEscape(title)}</h1>
+    <div class="meta">${htmlEscape(author)} · ${htmlEscape(source)} · ${htmlEscape(date)}${url ? ` · <a href="${htmlEscape(url)}">原文</a>` : ''}</div>
+    <article>${body}${media}</article>
+  </main>
+</body>
+</html>`
+}
+
+async function runSingleFile(source: string, filepath: string, useRemoteBrowser: boolean): Promise<void> {
   const bin = join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'single-file.cmd' : 'single-file')
 
   const args = [
-    url,
+    source,
     filepath,
     '--filename-conflict-action=overwrite',
     '--browser-load-max-time=60000',
@@ -365,14 +444,13 @@ async function saveSingleFile(message: Resource<MessageSpec>, outputDir: string,
     '--block-scripts=false',
   ]
 
-  const browserReady = (await cdpAlive()) || (await ensureBrowser(s => rlog('singlefile', s)))
-  if (browserReady) {
+  const browserReady = useRemoteBrowser && ((await cdpAlive()) || (await ensureBrowser(s => rlog('singlefile', s))))
+  if (useRemoteBrowser && browserReady) {
     args.push(`--browser-remote-debugging-URL=http://${CDP_HOST}:${CDP_PORT}`)
   }
   if (process.env.RADAR_PROXY) args.push(`--http-proxy-server=${process.env.RADAR_PROXY}`)
 
   await runCommand(bin, args, 120_000)
-  return filepath
 }
 
 function runCommand(cmd: string, args: string[], timeoutMs: number): Promise<void> {
