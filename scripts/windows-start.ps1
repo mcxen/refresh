@@ -34,6 +34,54 @@ function Find-Chrome {
   return $null
 }
 
+function Install-Bun {
+  Info "Bun was not found. Installing Bun for the current user..."
+  try {
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "irm bun.sh/install.ps1 | iex"
+  } catch {
+    Warn "Bun official installer failed: $($_.Exception.Message)"
+    if (Command-Exists "winget") {
+      Warn "Trying winget fallback..."
+      winget install Oven-sh.Bun -e --accept-package-agreements --accept-source-agreements
+    } else {
+      throw "Bun install failed and winget is not available. Install Bun manually: https://bun.sh"
+    }
+  }
+}
+
+function Bun-Install-WithFallback {
+  $registries = @()
+  if ($env:REFRESH_NPM_REGISTRY) {
+    $registries += $env:REFRESH_NPM_REGISTRY
+  } else {
+    $registries += ""
+    $registries += "https://registry.npmmirror.com"
+  }
+
+  $lastError = $null
+  foreach ($registry in $registries) {
+    try {
+      if ($registry) {
+        Info "Installing dependencies with registry: $registry"
+        bun install --registry $registry
+      } else {
+        Info "Installing dependencies with default registry..."
+        bun install
+      }
+      return
+    } catch {
+      $lastError = $_
+      if ($registry) {
+        Warn "Dependency install failed with $registry"
+      } else {
+        Warn "Dependency install failed with default registry, trying China mirror..."
+      }
+    }
+  }
+
+  throw "Dependency install failed. Last error: $($lastError.Exception.Message)"
+}
+
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
@@ -42,8 +90,7 @@ Info "Working directory: $Root"
 Add-Path-IfExists "$env:USERPROFILE\.bun\bin"
 
 if (-not (Command-Exists "bun")) {
-  Info "Bun was not found. Installing Bun for the current user..."
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "irm bun.sh/install.ps1 | iex"
+  Install-Bun
   Add-Path-IfExists "$env:USERPROFILE\.bun\bin"
 }
 
@@ -59,8 +106,7 @@ if ($chrome) {
   Warn "Chrome/Edge was not found. Install Chrome, or set RADAR_CHROME_BIN before starting."
 }
 
-Info "Installing or updating dependencies with bun install..."
-bun install
+Bun-Install-WithFallback
 
 $env:PORT = if ($env:PORT) { $env:PORT } else { "3001" }
 $env:REFRESH_API_TARGET = if ($env:REFRESH_API_TARGET) { $env:REFRESH_API_TARGET } else { "http://localhost:$($env:PORT)" }

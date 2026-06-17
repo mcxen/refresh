@@ -61,7 +61,7 @@ start-windows.cmd
 脚本会自动：
 
 - 检查并安装 Bun（当前用户目录，不需要管理员权限）；
-- 安装依赖；
+- 安装依赖，默认源失败后自动 fallback 到 `https://registry.npmmirror.com`；
 - 自动查找 Chrome / Edge，并设置 `RADAR_CHROME_BIN`；
 - 使用 `profiles/main` 保存独立登录态；
 - 启动后端 `:3001` 和前端 `:5173`。
@@ -70,6 +70,13 @@ start-windows.cmd
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-start.ps1
+```
+
+如果想指定 npm 镜像源：
+
+```powershell
+$env:REFRESH_NPM_REGISTRY="https://registry.npmmirror.com"
+.\start-windows.cmd
 ```
 
 启动后保持命令窗口打开，然后访问 `http://localhost:5173`。第一次抓取前按页面提示登录知乎、X/Twitter 或 B 站即可。
