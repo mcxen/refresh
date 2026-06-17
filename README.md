@@ -50,6 +50,30 @@ pnpm start
 
 首次使用时打开 `http://localhost:5173`。如果账号未登录，页面会提示登录；登录过程发生在受管 Chrome profile（默认 `profiles/main`）里。
 
+### Windows 一键启动
+
+Windows 用户可以直接双击仓库根目录的：
+
+```text
+start-windows.cmd
+```
+
+脚本会自动：
+
+- 检查并安装 Bun（当前用户目录，不需要管理员权限）；
+- 安装依赖；
+- 自动查找 Chrome / Edge，并设置 `RADAR_CHROME_BIN`；
+- 使用 `profiles/main` 保存独立登录态；
+- 启动后端 `:3001` 和前端 `:5173`。
+
+也可以在 PowerShell 里运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-start.ps1
+```
+
+启动后保持命令窗口打开，然后访问 `http://localhost:5173`。第一次抓取前按页面提示登录知乎、X/Twitter 或 B 站即可。
+
 ## Chrome 启动与登录态
 
 Refresh 不依赖外部浏览器自动化服务。后端需要访问平台时，会先检查本机 CDP：
