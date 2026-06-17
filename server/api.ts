@@ -338,15 +338,32 @@ apiV1.get('/refreshwindows/:name', c => {
 
   if (c.req.query('watch') === '1') {
     const encoder = new TextEncoder()
+    let unsub: (() => void) | null = null
+    let closed = false
+    const close = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+      if (closed) return
+      closed = true
+      unsub?.()
+      try {
+        controller.close()
+      } catch {
+        /* client may have already gone away */
+      }
+    }
     const stream = new ReadableStream({
       start(controller) {
-        const send = (event: string, data: string) =>
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`))
-        const unsub = watchWindow(name, ev => {
+        const send = (event: string, data: string) => {
+          if (closed) return
+          try {
+            controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`))
+          } catch {
+            close(controller)
+          }
+        }
+        unsub = watchWindow(name, ev => {
           send(ev.type, ev.data)
           if (ev.type === 'done') {
-            unsub?.()
-            controller.close()
+            close(controller)
           }
         })
         if (!unsub) {
@@ -358,8 +375,12 @@ apiV1.get('/refreshwindows/:name', c => {
           } else {
             send('error', 'not found')
           }
-          controller.close()
+          close(controller)
         }
+      },
+      cancel() {
+        closed = true
+        unsub?.()
       },
     })
     return new Response(stream, {

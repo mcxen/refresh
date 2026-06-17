@@ -150,7 +150,7 @@ function FeedPage() {
           ))}
           {!messages.isLoading && items.length === 0 && (
             <div className="text-center text-muted-foreground py-8">
-              {unreadOnly ? '没有未读内容 🎉' : '暂无内容，点左下角刷新抓一轮'}
+              {unreadOnly ? '没有未读内容 🎉' : '暂无内容，点刷新一轮抓取'}
             </div>
           )}
         </div>

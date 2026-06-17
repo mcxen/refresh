@@ -3,6 +3,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { cn } from '@/lib/utils'
 import { SOURCES, createRefreshWindow, useAccounts, useInvalidate, useUnreadCounts, watchRefreshWindow } from '@/api/radar'
 import { Sparkles, RefreshCw, Layers, Rss, Settings } from 'lucide-react'
+import { RefreshControl } from './RefreshControl'
 
 const AUTH_DOT: Record<string, string> = {
   ok: 'bg-green-500',
@@ -68,8 +69,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     { platform: 'twitter' as const, label: '推特', account: 'twitter-main' },
     { platform: 'bilibili' as const, label: 'B站', account: 'bilibili-main' },
   ]
-
-  const anyRefreshing = refreshing.size > 0
 
   return (
     <div className="w-52 border-r bg-background md:bg-muted/30 flex flex-col h-full">
@@ -161,14 +160,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       <div className="p-3 border-t text-xs text-muted-foreground space-y-2">
-        <button
-          onClick={() => refreshSources(activeSource === 'all' || view !== 'feed' ? SOURCES.map(s => s.name) : [activeSource])}
-          disabled={anyRefreshing}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md border bg-background hover:bg-accent transition-colors disabled:opacity-50 text-foreground"
-        >
-          <RefreshCw className={cn('h-3.5 w-3.5', anyRefreshing && 'animate-spin')} />
-          {anyRefreshing ? `抓取中 (${refreshing.size})…` : `刷新${activeSource === 'all' || view !== 'feed' ? '全部' : '当前源'}`}
-        </button>
+        <RefreshControl />
         {lastResult && <p className="px-1">{lastResult}</p>}
         <a
           href={activeSource === 'all' ? '/rss/all.xml' : `/rss/${activeSource}.xml`}

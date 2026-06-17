@@ -2,6 +2,7 @@ import { ReactNode, useState } from 'react'
 import { Menu } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { LoginBanner } from './LoginBanner'
+import { RefreshControl } from './RefreshControl'
 import { useUnreadCounts } from '@/api/radar'
 
 interface LayoutProps {
@@ -20,9 +21,12 @@ export function Layout({ children }: LayoutProps) {
           <Menu className="h-5 w-5" />
         </button>
         <h1 className="font-semibold">Refresh</h1>
-        {(unread.data?.total ?? 0) > 0 && (
-          <span className="ml-auto text-xs text-muted-foreground tabular-nums">{unread.data!.total} 未读</span>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {(unread.data?.total ?? 0) > 0 && (
+            <span className="text-xs text-muted-foreground tabular-nums">{unread.data!.total} 未读</span>
+          )}
+          <RefreshControl compact />
+        </div>
       </header>
 
       {/* 桌面侧栏 */}
