@@ -1,6 +1,6 @@
-import { SOURCES, type Message, type MediaRef, type ResourceMeta } from '@/api/radar'
+import { SOURCES, saveMessages, type Message, type MediaRef, type ResourceMeta } from '@/api/radar'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
-import { Heart, MessageCircle, Repeat2, Eye, ArrowUp, Clock, Repeat, ExternalLink, Circle, CheckCircle2 } from 'lucide-react'
+import { Heart, MessageCircle, Repeat2, Eye, ArrowUp, Clock, Repeat, ExternalLink, Circle, CheckCircle2, Download } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -91,6 +91,8 @@ export function MessageCard({ message, onSeen, onToggleRead, layout = 'list' }: 
   const read = !!message.status.read
   const [showContent, setShowContent] = useState(false)
   const [preview, setPreview] = useState<PreviewTarget | null>(null)
+  const [savingOriginal, setSavingOriginal] = useState(false)
+  const [saveHint, setSaveHint] = useState<string | null>(null)
   const author = spec.author
   const rootRef = useRef<HTMLDivElement>(null)
   const seenFired = useRef(false)
@@ -128,6 +130,22 @@ export function MessageCard({ message, onSeen, onToggleRead, layout = 'list' }: 
   const sources = messageSourceLabels(metadata)
   const durationLabel = platform === 'bilibili' && spec.durationSec !== undefined ? formatDuration(spec.durationSec) : null
   const showPreviewText = !!spec.text && !(showContent && spec.content)
+
+  const downloadOriginal = async () => {
+    if (!spec.url || savingOriginal) return
+    setSavingOriginal(true)
+    setSaveHint(null)
+    try {
+      await saveMessages([metadata.name])
+      setSaveHint('已开始')
+      window.setTimeout(() => setSaveHint(null), 2500)
+    } catch (err) {
+      setSaveHint('失败')
+      window.setTimeout(() => setSaveHint(null), 3500)
+    } finally {
+      setSavingOriginal(false)
+    }
+  }
 
   return (
     <Card
@@ -325,6 +343,17 @@ export function MessageCard({ message, onSeen, onToggleRead, layout = 'list' }: 
             <ExternalLink className="h-3 w-3" />
             原文
           </a>
+        )}
+        {spec.url && (
+          <button
+            onClick={() => void downloadOriginal()}
+            disabled={savingOriginal}
+            className="flex items-center gap-1 hover:text-foreground disabled:opacity-50"
+            title="按保存设置下载原文到保存目录"
+          >
+            <Download className="h-3 w-3" />
+            {savingOriginal ? '下载中' : saveHint ?? '下载原文'}
+          </button>
         )}
         {sources.length > 0 && (
           <span className="ml-auto flex min-w-0 flex-wrap justify-end gap-1.5">

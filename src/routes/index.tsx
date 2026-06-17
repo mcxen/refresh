@@ -77,6 +77,11 @@ function FeedPage() {
     void qc.invalidateQueries({ queryKey: ['unread-counts'] })
   }
 
+  const handleShowAll = () => {
+    setUnreadOnly(false)
+    setSortMode('time')
+  }
+
   const unreadCount = activeSource === 'all' ? unread.data?.total : unread.data?.sources?.[activeSource]
 
   const items = messages.data ?? []
@@ -102,6 +107,15 @@ function FeedPage() {
           <input type="checkbox" checked={unreadOnly} onChange={e => setUnreadOnly(e.target.checked)} />
           只看未读
         </label>
+        <button
+          onClick={handleShowAll}
+          className={cn(
+            'px-2 py-0.5 rounded hover:bg-accent',
+            !unreadOnly && sortMode === 'time' && 'bg-primary text-primary-foreground hover:bg-primary',
+          )}
+        >
+          查看全部
+        </button>
         <label className="flex items-center gap-1 cursor-pointer" title="卡片在视口停留 1.5 秒自动标记已读">
           <input type="checkbox" checked={autoRead} onChange={e => setAutoRead(e.target.checked)} />
           滚动已读

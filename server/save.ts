@@ -1,13 +1,14 @@
 // 保存/导出功能：Markdown 导出、配置管理、保存记录
 
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { copyFile, mkdir, readFile, writeFile } from 'fs/promises'
 import { spawn } from 'child_process'
-import { join, dirname } from 'path'
+import { basename, join, dirname } from 'path'
 import { DATA_DIR, type Resource } from './store'
 import { getMessage, listMessages } from './resources'
 import { rlog } from './logger'
 import type { MessageSpec } from './normalize'
 import { CDP_HOST, CDP_PORT, cdpAlive, ensureBrowser } from './cdp'
+import { downloadMedia, mediaFilePath } from './media'
 
 const SAVE_CONFIG_PATH = () => join(DATA_DIR, 'save-config.json')
 const SAVE_HISTORY_PATH = () => join(DATA_DIR, 'save-history.json')
@@ -125,10 +126,36 @@ async function appendSaveRecord(record: SaveRecord): Promise<void> {
 // ---------- Markdown 导出 ----------
 
 function sanitizeFilename(str: string): string {
-  return str.replace(/[/\\:*?"<>|]/g, '-').slice(0, 100)
+  return str.replace(/[/\\:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 100)
 }
 
-function formatMarkdown(message: Resource<MessageSpec>): string {
+type MediaAssetMap = Map<string, string>
+
+function messageTitle(message: Resource<MessageSpec>): string {
+  return message.spec.title || message.spec.text?.slice(0, 50) || message.metadata.name
+}
+
+function messageSaveBaseName(message: Resource<MessageSpec>): string {
+  return sanitizeFilename(messageTitle(message)) || message.metadata.name
+}
+
+function uniqueBaseName(baseName: string, used: Set<string>): string {
+  let candidate = baseName
+  let index = 2
+  while (used.has(candidate)) {
+    const suffix = `-${index}`
+    candidate = `${baseName.slice(0, Math.max(1, 100 - suffix.length))}${suffix}`
+    index++
+  }
+  used.add(candidate)
+  return candidate
+}
+
+function markdownEscape(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/\]/g, '\\]')
+}
+
+function formatMarkdown(message: Resource<MessageSpec>, assets: MediaAssetMap = new Map()): string {
   const spec = message.spec
   const meta = message.metadata
   const title = spec.title || spec.text?.slice(0, 50) || '无标题'
@@ -149,7 +176,7 @@ date: ${date}
 
   // 正文
   if (spec.content) {
-    md += spec.content + '\n\n'
+    md += rewriteHtmlMediaRefs(spec.content, assets) + '\n\n'
   } else if (spec.text) {
     md += spec.text + '\n\n'
   }
@@ -159,7 +186,8 @@ date: ${date}
     md += '## 媒体\n\n'
     for (const m of spec.media) {
       if (m.type === 'image') {
-        md += `![](${m.url || m.originUrl})\n`
+        const src = assets.get(m.url ?? '') ?? assets.get(m.originUrl) ?? m.url ?? m.originUrl
+        md += `![](${markdownEscape(src)})\n`
       } else if (m.type === 'video') {
         md += `[视频](${m.playUrl || m.url || m.originUrl})\n`
       }
@@ -184,6 +212,13 @@ date: ${date}
   }
 
   return md
+}
+
+function rewriteHtmlMediaRefs(html: string, assets: MediaAssetMap): string {
+  return html.replace(/(<img[^>]+src=")([^"]+)(")/g, (whole, pre, src, post) => {
+    const local = assets.get(src)
+    return local ? `${pre}${local}${post}` : whole
+  })
 }
 
 export function messageSearchText(message: Resource<MessageSpec>): string {
@@ -257,21 +292,64 @@ export function matchesRssRule(message: Resource<MessageSpec>, rule: RssRule): b
   return matchesSourceFilter(message, rule.sourceFilter) && matchesWhitelist(message, rule.whitelistKeywords)
 }
 
-async function saveMarkdown(message: Resource<MessageSpec>, outputDir: string): Promise<string> {
+async function saveMarkdown(message: Resource<MessageSpec>, outputDir: string, baseName: string): Promise<string> {
   await mkdir(outputDir, { recursive: true })
-  const filename = sanitizeFilename(`${message.metadata.name}.md`)
+  const filename = sanitizeFilename(`${baseName}.md`)
   const filepath = join(outputDir, filename)
-  const content = formatMarkdown(message)
+  const assets = await materializeMarkdownAssets(message, outputDir, baseName)
+  const content = formatMarkdown(message, assets)
   await writeFile(filepath, content, 'utf-8')
   return filepath
 }
 
-async function saveSingleFile(message: Resource<MessageSpec>, outputDir: string): Promise<string> {
+async function materializeMarkdownAssets(message: Resource<MessageSpec>, outputDir: string, baseName: string): Promise<MediaAssetMap> {
+  const assets = new Map<string, string>()
+  const urls = new Set<string>()
+
+  for (const media of message.spec.media) {
+    if (media.type === 'image') {
+      if (media.url) urls.add(media.url)
+      urls.add(media.originUrl)
+    }
+  }
+
+  if (message.spec.content) {
+    for (const match of message.spec.content.matchAll(/<img[^>]+src="([^"]+)"/g)) {
+      urls.add(match[1])
+    }
+  }
+
+  if (urls.size === 0) return assets
+  const assetSubdir = `assets/${baseName}`
+  const assetDir = join(outputDir, assetSubdir)
+  await mkdir(assetDir, { recursive: true })
+
+  for (const url of urls) {
+    const file = await resolveLocalMediaFile(url)
+    if (!file) continue
+    const targetName = basename(file)
+    await copyFile(file, join(assetDir, targetName)).catch(() => {})
+    assets.set(url, `${assetSubdir}/${targetName}`)
+  }
+
+  return assets
+}
+
+async function resolveLocalMediaFile(url: string): Promise<string | null> {
+  if (url.startsWith('/api/v1/media/')) {
+    return mediaFilePath(url.slice('/api/v1/media/'.length))
+  }
+  const local = await downloadMedia(url, s => rlog('save', s))
+  if (!local) return null
+  return mediaFilePath(local.slice('/api/v1/media/'.length))
+}
+
+async function saveSingleFile(message: Resource<MessageSpec>, outputDir: string, baseName: string): Promise<string> {
   await mkdir(outputDir, { recursive: true })
   const url = message.spec.url
   if (!url) throw new Error(`message has no source URL: ${message.metadata.name}`)
 
-  const filename = sanitizeFilename(`${message.metadata.name}.html`)
+  const filename = sanitizeFilename(`${baseName}.html`)
   const filepath = join(outputDir, filename)
   const bin = join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'single-file.cmd' : 'single-file')
 
@@ -350,13 +428,18 @@ export async function saveMessages(
 async function executeSave(record: SaveRecord): Promise<void> {
   record.status.phase = 'Running'
   const config = await readSaveConfig()
-  const outputDir = join(config.spec.savePath, record.metadata.name)
+  const firstMessage = record.spec.messageNames.length === 1 ? await getMessage(record.spec.messageNames[0]) : null
+  const outputDirName = firstMessage
+    ? messageSaveBaseName(firstMessage as unknown as Resource<MessageSpec>)
+    : record.metadata.name
+  const outputDir = join(config.spec.savePath, outputDirName)
 
   try {
     const { patchOverlayMany } = await import('./store')
     let savedCount = 0
     const savedNames: string[] = []
     const errors: string[] = []
+    const usedBaseNames = new Set<string>()
 
     for (const name of record.spec.messageNames) {
       const message = await getMessage(name)
@@ -367,12 +450,13 @@ async function executeSave(record: SaveRecord): Promise<void> {
 
       const typedMessage = message as unknown as Resource<MessageSpec>
       if (!matchesSaveRules(typedMessage, config)) continue
+      const baseName = uniqueBaseName(messageSaveBaseName(typedMessage), usedBaseNames)
 
       try {
         if (record.spec.format === 'markdown') {
-          await saveMarkdown(typedMessage, outputDir)
+          await saveMarkdown(typedMessage, outputDir, baseName)
         } else {
-          await saveSingleFile(typedMessage, outputDir)
+          await saveSingleFile(typedMessage, outputDir, baseName)
         }
         savedCount++
         savedNames.push(name)

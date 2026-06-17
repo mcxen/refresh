@@ -311,8 +311,8 @@ apiV1.post('/save/messages', async c => {
   if (!Array.isArray(body.names) || body.names.length === 0) {
     return c.json({ error: 'names required' }, 400)
   }
-  const format = body.format === 'singlefile' ? 'singlefile' : 'markdown'
-  const { saveMessages } = await import('./save')
+  const { readSaveConfig, saveMessages } = await import('./save')
+  const format = body.format === 'singlefile' || body.format === 'markdown' ? body.format : (await readSaveConfig()).spec.format
   const record = await saveMessages(body.names.slice(0, 500), format)
   return c.json(record, 202)
 })
