@@ -285,6 +285,13 @@ apiV1.patch('/save-config', async c => {
   if (spec.format === 'markdown' || spec.format === 'singlefile') config.spec.format = spec.format
   if (typeof spec.savePath === 'string') config.spec.savePath = spec.savePath
   if (Array.isArray(spec.sourceFilter)) config.spec.sourceFilter = spec.sourceFilter
+  if (Array.isArray(spec.rssWhitelistKeywords)) config.spec.rssWhitelistKeywords = spec.rssWhitelistKeywords
+  if (Array.isArray(spec.rssRules)) {
+    const { normalizeRssRule } = await import('./save')
+    config.spec.rssRules = spec.rssRules.map(normalizeRssRule).filter(rule => !!rule)
+  }
+  if (typeof spec.saveOnlyUnread === 'boolean') config.spec.saveOnlyUnread = spec.saveOnlyUnread
+  if (typeof spec.saveOnlyUnsaved === 'boolean') config.spec.saveOnlyUnsaved = spec.saveOnlyUnsaved
   await writeSaveConfig(config)
   return c.json(config)
 })
@@ -308,6 +315,12 @@ apiV1.post('/save/messages', async c => {
   const { saveMessages } = await import('./save')
   const record = await saveMessages(body.names.slice(0, 500), format)
   return c.json(record, 202)
+})
+
+apiV1.post('/save/run', async c => {
+  const { saveByCurrentConfig } = await import('./save')
+  const record = await saveByCurrentConfig('manual')
+  return record ? c.json(record, 202) : c.json({ saved: 0, reason: 'no matching messages' })
 })
 
 // ---------- refreshwindows ----------

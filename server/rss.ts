@@ -4,6 +4,8 @@
 import { Hono } from 'hono'
 import { listMessages } from './resources'
 import { SOURCES } from './config'
+import type { MessageSpec } from './normalize'
+import type { Resource } from './store'
 
 const BASE_URL = () => process.env.RADAR_BASE_URL ?? `http://localhost:${process.env.PORT ?? '3001'}`
 
@@ -13,19 +15,26 @@ rssApp.get('/:file', async c => {
   const file = c.req.param('file')
   if (!file.endsWith('.xml')) return c.json({ error: 'not found' }, 404)
   const name = file.slice(0, -'.xml'.length)
+  const { readSaveConfig, matchesRssRule } = await import('./save')
+  const config = await readSaveConfig()
 
   let labelSelector: string | undefined
   let title: string
+  let customRule = null as (typeof config.spec.rssRules)[number] | null
   if (name === 'all') {
     title = 'Refresh — 全部源'
   } else if (SOURCES.some(s => s.name === name)) {
     labelSelector = `source=${name}`
     title = `Refresh — ${name}`
+  } else if ((customRule = config.spec.rssRules.find(rule => rule.suffix === name) ?? null)) {
+    title = `Refresh — ${customRule.title}`
   } else {
     return c.json({ error: `unknown feed: ${name}` }, 404)
   }
 
-  const messages = await listMessages({ labelSelector, limit: 50 })
+  const messages = (await listMessages({ labelSelector, limit: customRule ? 500 : 50 }))
+    .filter(m => !customRule || matchesRssRule(m as unknown as Resource<MessageSpec>, customRule))
+    .slice(0, 50)
   const xml = renderRss(title, `${BASE_URL()}/rss/${file}`, messages)
   return new Response(xml, { headers: { 'Content-Type': 'application/rss+xml; charset=utf-8' } })
 })

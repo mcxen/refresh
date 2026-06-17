@@ -1,9 +1,9 @@
 // 管理页：账号状态 + 运行日志（data/logs 按天滚动文件的实时 tail）
 
 import { useEffect, useRef, useState } from 'react'
-import { checkAccount, patchScheduler, patchSaveConfig, saveMessages, useAccounts, useLogs, useScheduler, useSaveConfig, useSaveHistory } from '@/api/radar'
+import { checkAccount, patchScheduler, patchSaveConfig, runSaveByConfig, useAccounts, useLogs, useScheduler, useSaveConfig, useSaveHistory } from '@/api/radar'
 import { cn } from '@/lib/utils'
-import { Loader2, RotateCw } from 'lucide-react'
+import { Loader2, Plus, RotateCw, Save, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 const AUTH_STYLE: Record<string, string> = {
@@ -18,6 +18,26 @@ function fmtTime(iso: string | null | undefined): string {
   return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
+type RssRule = {
+  suffix: string
+  title: string
+  whitelistKeywords: string[]
+  sourceFilter: string[]
+}
+
+function splitList(value: string): string[] {
+  return value.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+function normalizeSuffix(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 63)
+}
+
+function emptyRssRule(index: number): RssRule {
+  const suffix = `custom-${index + 1}`
+  return { suffix, title: suffix, whitelistKeywords: [], sourceFilter: [] }
+}
+
 export function AdminPage() {
   const accounts = useAccounts()
   const scheduler = useScheduler()
@@ -28,10 +48,12 @@ export function AdminPage() {
   const [follow, setFollow] = useState(true)
   const [checking, setChecking] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [savingRssRules, setSavingRssRules] = useState(false)
+  const [rssRules, setRssRules] = useState<RssRule[]>([])
   const logs = useLogs(date)
   const logRef = useRef<HTMLPreElement>(null)
 
-  const updateScheduler = async (spec: { enabled?: boolean; intervalMs?: number }) => {
+  const updateScheduler = async (spec: { enabled?: boolean; intervalMs?: number; count?: number }) => {
     await patchScheduler(spec)
     await qc.invalidateQueries({ queryKey: ['scheduler'] })
   }
@@ -44,6 +66,10 @@ export function AdminPage() {
     format?: string
     savePath?: string
     sourceFilter?: string[]
+    rssWhitelistKeywords?: string[]
+    rssRules?: RssRule[]
+    saveOnlyUnread?: boolean
+    saveOnlyUnsaved?: boolean
   }) => {
     await patchSaveConfig(spec)
     await qc.invalidateQueries({ queryKey: ['save-config'] })
@@ -52,17 +78,13 @@ export function AdminPage() {
   const triggerSave = async () => {
     setSaving(true)
     try {
-      // 示例：保存所有未读消息（实际使用时可以让用户选择）
-      const res = await fetch('/api/v1/messages?unread=true&limit=200')
-      const data = await res.json()
-      const names = (data.items || []).map((m: { metadata: { name: string } }) => m.metadata.name)
-      if (names.length === 0) {
-        alert('没有未读消息可保存')
+      const record = await runSaveByConfig()
+      if ('saved' in record) {
+        alert('没有符合规则的消息可保存')
         return
       }
-      await saveMessages(names, saveConfig.data?.spec.format)
       await qc.invalidateQueries({ queryKey: ['save-history'] })
-      alert(`已开始保存 ${names.length} 条消息`)
+      alert(`已开始保存 ${record.spec.messageNames.length} 条消息`)
     } catch (err) {
       alert(`保存失败: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -75,6 +97,33 @@ export function AdminPage() {
       logRef.current.scrollTop = logRef.current.scrollHeight
     }
   }, [logs.data, follow])
+
+  useEffect(() => {
+    setRssRules(saveConfig.data?.spec.rssRules ?? [])
+  }, [saveConfig.data?.spec.rssRules])
+
+  const patchRssRule = (index: number, patch: Partial<RssRule>) => {
+    setRssRules(current => current.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)))
+  }
+
+  const persistRssRules = async () => {
+    setSavingRssRules(true)
+    try {
+      const normalized = rssRules
+        .map(rule => ({
+          ...rule,
+          suffix: normalizeSuffix(rule.suffix),
+          title: rule.title.trim() || normalizeSuffix(rule.suffix),
+          whitelistKeywords: rule.whitelistKeywords.map(s => s.trim()).filter(Boolean),
+          sourceFilter: rule.sourceFilter.map(s => s.trim()).filter(Boolean),
+        }))
+        .filter(rule => /^[a-z0-9][a-z0-9-]{0,62}$/.test(rule.suffix))
+      await updateSaveConfig({ rssRules: normalized })
+      setRssRules(normalized)
+    } finally {
+      setSavingRssRules(false)
+    }
+  }
 
   const recheck = async (name: string) => {
     setChecking(name)
@@ -145,6 +194,24 @@ export function AdminPage() {
             />
             分钟
           </label>
+          <label className="flex items-center gap-1 text-muted-foreground">
+            每源
+            <input
+              type="number"
+              min={1}
+              max={200}
+              className="w-16 px-1 py-0.5 border rounded bg-background text-foreground"
+              defaultValue={scheduler.data?.spec.count ?? 50}
+              key={`count-${scheduler.data?.spec.count}`}
+              onBlur={e => {
+                const count = parseInt(e.target.value, 10)
+                if (count >= 1 && count <= 200 && count !== scheduler.data?.spec.count) {
+                  void updateScheduler({ count })
+                }
+              }}
+            />
+            条
+          </label>
           <span className="text-xs text-muted-foreground ml-auto">
             {scheduler.data?.status.running && '⟳ 正在跑一轮 · '}
             上次 {fmtTime(scheduler.data?.status.lastRoundAt)} · 下次 {fmtTime(scheduler.data?.status.nextRoundAt)}
@@ -162,7 +229,7 @@ export function AdminPage() {
                 checked={saveConfig.data?.spec.enabled ?? true}
                 onChange={e => void updateSaveConfig({ enabled: e.target.checked })}
               />
-              {saveConfig.data?.spec.enabled ? '已启用' : '已禁用'}
+              {saveConfig.data?.spec.enabled ? '定时保存已开启' : '定时保存已关闭'}
             </label>
 
             <label className="flex items-center gap-2">
@@ -186,7 +253,7 @@ export function AdminPage() {
                 className="px-2 py-1 border rounded bg-background text-foreground"
               >
                 <option value="markdown">Markdown</option>
-                <option value="singlefile" disabled>SingleFile (Phase 2)</option>
+                <option value="singlefile">SingleFile</option>
               </select>
             </label>
           </div>
@@ -256,6 +323,117 @@ export function AdminPage() {
                 placeholder="twitter, zhihu, bilibili"
               />
             </label>
+          </div>
+
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 cursor-pointer text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={saveConfig.data?.spec.saveOnlyUnsaved ?? true}
+                onChange={e => void updateSaveConfig({ saveOnlyUnsaved: e.target.checked })}
+              />
+              只保存未保存过的消息
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={saveConfig.data?.spec.saveOnlyUnread ?? false}
+                onChange={e => void updateSaveConfig({ saveOnlyUnread: e.target.checked })}
+              />
+              只保存未读消息
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <h3 className="font-medium">RSS 条目规则</h3>
+              <button
+                type="button"
+                onClick={() => setRssRules(current => [...current, emptyRssRule(current.length)])}
+                className="p-1.5 rounded hover:bg-accent"
+                title="新增 RSS 规则"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void persistRssRules()}
+                disabled={savingRssRules}
+                className="p-1.5 rounded hover:bg-accent disabled:opacity-50"
+                title="保存 RSS 规则"
+              >
+                {savingRssRules ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              </button>
+              <span className="text-xs text-muted-foreground ml-auto">抓取全量入库，仅 RSS 输出按条目过滤</span>
+            </div>
+
+            {rssRules.length === 0 && (
+              <div className="border rounded-md px-3 py-2 text-xs text-muted-foreground">
+                暂无自定义 RSS 条目规则
+              </div>
+            )}
+
+            {rssRules.map((rule, index) => (
+              <div key={`${rule.suffix}-${index}`} className="border rounded-md px-3 py-2 space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
+                  <label className="flex items-center gap-2 text-muted-foreground">
+                    后缀
+                    <input
+                      type="text"
+                      value={rule.suffix}
+                      onChange={e => patchRssRule(index, { suffix: normalizeSuffix(e.target.value) })}
+                      className="min-w-0 flex-1 px-2 py-1 border rounded bg-background text-foreground"
+                      placeholder="ai"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-muted-foreground">
+                    标题
+                    <input
+                      type="text"
+                      value={rule.title}
+                      onChange={e => patchRssRule(index, { title: e.target.value })}
+                      className="min-w-0 flex-1 px-2 py-1 border rounded bg-background text-foreground"
+                      placeholder="AI"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setRssRules(current => current.filter((_, i) => i !== index))}
+                    className="p-1.5 rounded hover:bg-accent justify-self-start md:justify-self-end"
+                    title="删除 RSS 规则"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <label className="flex items-center gap-2 text-muted-foreground">
+                    白名单
+                    <input
+                      type="text"
+                      value={rule.whitelistKeywords.join(', ')}
+                      onChange={e => patchRssRule(index, { whitelistKeywords: splitList(e.target.value) })}
+                      className="min-w-0 flex-1 px-2 py-1 border rounded bg-background text-foreground"
+                      placeholder="OpenAI, 模型, Agent"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-muted-foreground">
+                    指定源
+                    <input
+                      type="text"
+                      value={rule.sourceFilter.join(', ')}
+                      onChange={e => patchRssRule(index, { sourceFilter: splitList(e.target.value) })}
+                      className="min-w-0 flex-1 px-2 py-1 border rounded bg-background text-foreground"
+                      placeholder="twitter, zhihu, bilibili"
+                    />
+                  </label>
+                </div>
+
+                <div className="text-xs text-muted-foreground">
+                  /rss/{rule.suffix || 'custom'}.xml
+                </div>
+              </div>
+            ))}
           </div>
 
           <button

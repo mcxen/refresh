@@ -146,6 +146,9 @@ assert_eq "false" "$(curl -s "$BASE/scheduler" | jq -r .spec.enabled)" "env off 
 curl -s -X PATCH "$BASE/scheduler" -d '{"spec":{"enabled":true,"intervalMs":1200000}}' >/dev/null
 assert_eq "true" "$(curl -s "$BASE/scheduler" | jq -r .spec.enabled)" "PATCH 开启"
 assert_eq "1200000" "$(curl -s "$BASE/scheduler" | jq -r .spec.intervalMs)" "PATCH 间隔"
+curl -s -X PATCH "$BASE/scheduler" -d '{"spec":{"count":7}}' >/dev/null
+assert_eq "7" "$(curl -s "$BASE/scheduler" | jq -r .spec.count)" "PATCH 每源抓取数量"
+assert_eq "400" "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH "$BASE/scheduler" -d '{"spec":{"count":201}}')" "抓取数量上限校验"
 assert_eq "400" "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH "$BASE/scheduler" -d '{"spec":{"intervalMs":1000}}')" "间隔下限校验"
 curl -s -X PATCH "$BASE/scheduler" -d '{"spec":{"enabled":false}}' >/dev/null
 assert_eq "false" "$(curl -s "$BASE/scheduler" | jq -r .spec.enabled)" "PATCH 关闭"
@@ -156,10 +159,27 @@ RSS_CODE=$(curl -s -o "$TMPDIR/feed.xml" -w '%{http_code}' "http://localhost:${P
 assert_eq "200" "$RSS_CODE" "RSS 200"
 if command -v xmllint >/dev/null && xmllint --noout "$TMPDIR/feed.xml" 2>/dev/null; then ok "RSS 是合法 XML"; else fail "RSS XML 非法"; fi
 if grep -q '<guid isPermaLink="false">zhihu-8001</guid>' "$TMPDIR/feed.xml"; then ok "guid = message name"; else fail "guid 缺失"; fi
+curl -s -X PATCH "$BASE/save-config" -d '{"spec":{"rssRules":[{"suffix":"group-only","title":"group-only","whitelistKeywords":["group inner"],"sourceFilter":["zhihu"]}]}}' >/dev/null
+curl -s "http://localhost:${PORT}/rss/group-only.xml" > "$TMPDIR/feed-filtered.xml"
+if grep -q '<guid isPermaLink="false">zhihu-8003</guid>' "$TMPDIR/feed-filtered.xml" && ! grep -q '<guid isPermaLink="false">zhihu-8001</guid>' "$TMPDIR/feed-filtered.xml"; then ok "自定义 RSS 后缀白名单筛选生效"; else fail "自定义 RSS 后缀白名单筛选未生效"; fi
+curl -s "http://localhost:${PORT}/rss/zhihu-main-recommend.xml" > "$TMPDIR/feed-full.xml"
+if grep -q '<guid isPermaLink="false">zhihu-8001</guid>' "$TMPDIR/feed-full.xml"; then ok "源 RSS 保持全量输出"; else fail "源 RSS 被自定义白名单误过滤"; fi
 assert_eq "404" "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}/rss/nope.xml")" "未知 feed 404"
 curl -s "http://localhost:${PORT}/rss/all.xml" | xmllint --noout - 2>/dev/null && ok "all.xml 合法" || fail "all.xml 非法"
 NAMES_COUNT=$(curl -s "$BASE/messages?names=zhihu-8001,twitter-9001,missing" | jq '.items | length')
 assert_eq "2" "$NAMES_COUNT" "messages?names= 批量查询"
+
+log "== 保存/导出：按规则 Markdown 落盘 =="
+curl -s -X PATCH "$BASE/save-config" -d "{\"spec\":{\"enabled\":true,\"savePath\":\"$TMPDIR/saved\",\"sourceFilter\":[\"zhihu\"],\"saveOnlyUnsaved\":true,\"saveOnlyUnread\":false}}" >/dev/null
+SAVE_RUN=$(curl -s -X POST "$BASE/save/run")
+assert_eq "SaveRecord" "$(echo "$SAVE_RUN" | jq -r .kind)" "save/run 返回保存记录"
+sleep 1
+assert_eq "3" "$(curl -s "$BASE/save/history" | jq -r '.items[0].status.savedCount')" "Markdown 保存源筛选生效"
+SAVED_DIR=$(curl -s "$BASE/save/history" | jq -r '.items[0].status.outputPath')
+if [ -d "$SAVED_DIR" ] && [ "$(find "$SAVED_DIR" -name '*.md' | wc -l | tr -d ' ')" = "3" ]; then ok "Markdown 文件写入指定目录"; else fail "Markdown 文件数量不对"; fi
+assert_eq "true" "$(curl -s "$BASE/messages/zhihu-8001" | jq -r .status.saved)" "保存后写入 overlay saved 状态"
+SAVE_RUN2=$(curl -s -X POST "$BASE/save/run")
+assert_eq "0" "$(echo "$SAVE_RUN2" | jq -r .saved)" "saveOnlyUnsaved 避免重复导出"
 
 log "== A5(mock): 登录闭环（logged_out → LoginSession → Succeeded → 补抓） =="
 PORT2=$((PORT+1))

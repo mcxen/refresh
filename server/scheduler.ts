@@ -15,12 +15,13 @@ import { rlog } from './logger'
 interface SchedulerSpec {
   enabled: boolean
   intervalMs: number
+  count: number
 }
 
 const SPEC_PATH = () => join(DATA_DIR, 'scheduler.json')
 const MIN_INTERVAL_MS = 60_000
 
-let spec: SchedulerSpec = { enabled: true, intervalMs: 30 * 60 * 1000 }
+let spec: SchedulerSpec = { enabled: true, intervalMs: 30 * 60 * 1000, count: 50 }
 let timer: ReturnType<typeof setInterval> | null = null
 let bootstrapTimer: ReturnType<typeof setTimeout> | null = null
 let roundInProgress = false
@@ -29,9 +30,11 @@ let nextRoundAt: string | null = null
 
 function envDefaults(): SchedulerSpec {
   const interval = parseInt(process.env.RADAR_SCHEDULE_INTERVAL_MS ?? '', 10)
+  const count = parseInt(process.env.RADAR_SCHEDULE_COUNT ?? '', 10)
   return {
     enabled: process.env.RADAR_SCHEDULER !== 'off',
     intervalMs: Number.isFinite(interval) && interval > 0 ? interval : 30 * 60 * 1000,
+    count: Number.isFinite(count) && count > 0 ? Math.min(count, 200) : 50,
   }
 }
 
@@ -42,6 +45,7 @@ export async function initScheduler(): Promise<void> {
     spec = {
       enabled: typeof saved.enabled === 'boolean' ? saved.enabled : def.enabled,
       intervalMs: typeof saved.intervalMs === 'number' && saved.intervalMs >= MIN_INTERVAL_MS ? saved.intervalMs : def.intervalMs,
+      count: typeof saved.count === 'number' && saved.count > 0 ? Math.min(Math.floor(saved.count), 200) : def.count,
     }
   } catch {
     spec = envDefaults()
@@ -59,7 +63,7 @@ function apply(bootstrap = false): void {
     rlog('scheduler', 'disabled')
     return
   }
-  rlog('scheduler', `enabled, every ${Math.round(spec.intervalMs / 1000)}s`)
+  rlog('scheduler', `enabled, every ${Math.round(spec.intervalMs / 1000)}s, count=${spec.count}`)
   timer = setInterval(() => void runRound(), spec.intervalMs)
   nextRoundAt = new Date(Date.now() + spec.intervalMs).toISOString()
   if (bootstrap) {
@@ -80,18 +84,22 @@ export function schedulerResource(): Resource {
   }
 }
 
-export async function patchScheduler(patch: { enabled?: unknown; intervalMs?: unknown }): Promise<Resource> {
+export async function patchScheduler(patch: { enabled?: unknown; intervalMs?: unknown; count?: unknown }): Promise<Resource> {
   if (typeof patch.enabled === 'boolean') spec.enabled = patch.enabled
   if (typeof patch.intervalMs === 'number') {
     if (patch.intervalMs < MIN_INTERVAL_MS) throw new Error(`intervalMs must be >= ${MIN_INTERVAL_MS}`)
     spec.intervalMs = Math.floor(patch.intervalMs)
+  }
+  if (typeof patch.count === 'number') {
+    if (patch.count < 1 || patch.count > 200) throw new Error('count must be between 1 and 200')
+    spec.count = Math.floor(patch.count)
   }
   await ensureDirs()
   const tmp = `${SPEC_PATH()}.tmp-${process.pid}`
   await writeFile(tmp, JSON.stringify(spec, null, 2), 'utf-8')
   await rename(tmp, SPEC_PATH())
   apply()
-  rlog('scheduler', `patched: enabled=${spec.enabled} intervalMs=${spec.intervalMs}`)
+  rlog('scheduler', `patched: enabled=${spec.enabled} intervalMs=${spec.intervalMs} count=${spec.count}`)
   return schedulerResource()
 }
 
@@ -122,12 +130,16 @@ async function runRound(): Promise<void> {
       for (const source of SOURCES.filter(s => s.account === account.name)) {
         if (!spec.enabled) break
         try {
-          const win = createRefreshWindow({ source: source.name, trigger: 'scheduled' })
+          const win = createRefreshWindow({ source: source.name, count: spec.count, trigger: 'scheduled' })
           await waitWindowDone(win.metadata.name)
         } catch (err) {
           rlog('scheduler', `${source.name} failed: ${err instanceof Error ? err.message : err}`)
         }
       }
+    }
+    if (spec.enabled) {
+      const { saveByCurrentConfig } = await import('./save')
+      await saveByCurrentConfig('scheduled')
     }
   } finally {
     roundInProgress = false

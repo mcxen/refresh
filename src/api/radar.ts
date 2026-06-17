@@ -167,7 +167,7 @@ export function useUnreadCounts() {
 
 export interface Scheduler {
   kind: 'Scheduler'
-  spec: { enabled: boolean; intervalMs: number }
+  spec: { enabled: boolean; intervalMs: number; count: number }
   status: { running: boolean; lastRoundAt: string | null; nextRoundAt: string | null }
 }
 
@@ -179,7 +179,7 @@ export function useScheduler() {
   })
 }
 
-export function patchScheduler(spec: { enabled?: boolean; intervalMs?: number }): Promise<Scheduler> {
+export function patchScheduler(spec: { enabled?: boolean; intervalMs?: number; count?: number }): Promise<Scheduler> {
   return send('PATCH', '/api/v1/scheduler', { spec })
 }
 
@@ -260,6 +260,10 @@ export interface SaveConfig {
     format: 'markdown' | 'singlefile'
     savePath: string
     sourceFilter: string[]
+    rssWhitelistKeywords: string[]
+    rssRules: { suffix: string; title: string; whitelistKeywords: string[]; sourceFilter: string[] }[]
+    saveOnlyUnread: boolean
+    saveOnlyUnsaved: boolean
   }
   status: Record<string, never>
 }
@@ -294,10 +298,18 @@ export function patchSaveConfig(spec: {
   format?: string
   savePath?: string
   sourceFilter?: string[]
+  rssWhitelistKeywords?: string[]
+  rssRules?: { suffix: string; title: string; whitelistKeywords: string[]; sourceFilter: string[] }[]
+  saveOnlyUnread?: boolean
+  saveOnlyUnsaved?: boolean
 }): Promise<SaveConfig> {
   return send('PATCH', '/api/v1/save-config', { spec })
 }
 
 export function saveMessages(names: string[], format?: 'markdown' | 'singlefile'): Promise<SaveRecord> {
   return send('POST', '/api/v1/save/messages', { names, format })
+}
+
+export function runSaveByConfig(): Promise<SaveRecord | { saved: number; reason: string }> {
+  return send('POST', '/api/v1/save/run')
 }
